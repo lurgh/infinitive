@@ -71,6 +71,27 @@ There is a brief delay between altering a setting and Infinitive updating the in
 Once it is working you may want to install how to install it under systemd to run as a daemon.
 @mww012 did a great writeup of this procedure - see https://github.com/mww012/hass-infinitive/blob/master/info.md
 
+Here's the updated `infinitive.service` with the MQTT enabled:
+```
+[Unit]
+Description=Infinitive Service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=root
+Environment="MQTTPASS=mqtt-password"
+ExecStart=/path/to/infinitive -httpport=8080 -serial=/dev/ttyUSB0 -mqtt=tcp://mqtt-username@mqtt-broker-ip:1883
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
+Please note that rather than using `--` in front of each options (see below), use single `-` instead
 #### Additional options
 
 These additional options may be useful to you:
@@ -90,7 +111,7 @@ This sets the log level to Debug rather than the default Info, causing quite a b
 
   * Enable MQTT data publication, HA MQTT discovery, and MQTT command subscriptions:
 ```
-$ MQTTPASS=passwd infinitive ... --mqtt tcp://username@mqtt-broker-host:1883
+$ MQTTPASS=mqtt-password infinitive ... --mqtt tcp://mqtt-username@mqtt-broker-ip:1883
 ```
 password and username are optional, as needed by your MQTT broker.  Password is passed in the environment so as
 not to be visible in "ps" etc.
