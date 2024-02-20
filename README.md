@@ -84,34 +84,33 @@ Restart=always
 RestartSec=1
 User=root
 Environment="MQTTPASS=mqtt-password"
-ExecStart=/path/to/infinitive -httpport=8080 -serial=/dev/ttyUSB0 -mqtt=tcp://mqtt-username@mqtt-broker-ip:1883
+ExecStart=/path/to/infinitive -httpport=8080 -serial=/dev/ttyUSB0 -mqtt=tcp://mqtt-username@mqtt-broker-host:1883
 
 [Install]
 WantedBy=multi-user.target
 
 ```
 
-Please note that rather than using `--` in front of each options (see below), use single `-` instead
 #### Additional options
 
 These additional options may be useful to you:
 
   * Enable req/resp logging:
 ```
-$ infinitive ... --rlog
+$ infinitive ... -rlog
 ```
 In addition to all normal operations, this option causes infinitive to log all requests and responses seen on the serial bus in an hourly log file named 'resplog.YYMMDDHH' which will be created in the current directory.  This is intended
 to capture serial bus data for offline analysis.
 
   * Enable debug level logging:
 ```
-$ infinitive ... --debug
+$ infinitive ... -debug
 ```
 This sets the log level to Debug rather than the default Info, causing quite a bit more verbose logging.
 
   * Enable MQTT data publication, HA MQTT discovery, and MQTT command subscriptions:
 ```
-$ MQTTPASS=mqtt-password infinitive ... --mqtt tcp://mqtt-username@mqtt-broker-ip:1883
+$ MQTTPASS=mqtt-password infinitive ... -mqtt tcp://mqtt-username@mqtt-broker-ip:1883
 ```
 password and username are optional, as needed by your MQTT broker.  Password is passed in the environment so as
 not to be visible in "ps" etc.
