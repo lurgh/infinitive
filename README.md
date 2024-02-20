@@ -71,26 +71,46 @@ There is a brief delay between altering a setting and Infinitive updating the in
 Once it is working you may want to install how to install it under systemd to run as a daemon.
 @mww012 did a great writeup of this procedure - see https://github.com/mww012/hass-infinitive/blob/master/info.md
 
+Here's the updated `infinitive.service` with the MQTT enabled:
+```
+[Unit]
+Description=Infinitive Service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=root
+Environment="MQTTPASS=mqtt-password"
+ExecStart=/path/to/infinitive -httpport=8080 -serial=/dev/ttyUSB0 -mqtt=tcp://mqtt-username@mqtt-broker-host:1883
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
 #### Additional options
 
 These additional options may be useful to you:
 
   * Enable req/resp logging:
 ```
-$ infinitive ... --rlog
+$ infinitive ... -rlog
 ```
 In addition to all normal operations, this option causes infinitive to log all requests and responses seen on the serial bus in an hourly log file named 'resplog.YYMMDDHH' which will be created in the current directory.  This is intended
 to capture serial bus data for offline analysis.
 
   * Enable debug level logging:
 ```
-$ infinitive ... --debug
+$ infinitive ... -debug
 ```
 This sets the log level to Debug rather than the default Info, causing quite a bit more verbose logging.
 
   * Enable MQTT data publication, HA MQTT discovery, and MQTT command subscriptions:
 ```
-$ MQTTPASS=passwd infinitive ... --mqtt tcp://username@mqtt-broker-host:1883
+$ MQTTPASS=mqtt-password infinitive ... -mqtt tcp://mqtt-username@mqtt-broker-host:1883
 ```
 password and username are optional, as needed by your MQTT broker.  Password is passed in the environment so as
 not to be visible in "ps" etc.
@@ -444,7 +464,7 @@ Infinitive reads and writes information from the Infinity thermostat.  It also g
 
 #### Bus Logging
 
-By adding the --rlog command line option, you can request infinitive to log every request and response seen on the serial bus into a log file, for offline analysis.  We have some primitive tools for analyzing this data which we may add to the repo at some point.  It has been very helpful for finding some more tricks in the protocol.
+By adding the -rlog command line option, you can request infinitive to log every request and response seen on the serial bus into a log file, for offline analysis.  We have some primitive tools for analyzing this data which we may add to the repo at some point.  It has been very helpful for finding some more tricks in the protocol.
 
 #### Protocol Notes
 Building on the work documented above, a numer of additional details about the protocol have been discovered.  These notes are
