@@ -110,7 +110,7 @@ This sets the log level to Debug rather than the default Info, causing quite a b
 
   * Enable MQTT data publication, HA MQTT discovery, and MQTT command subscriptions:
 ```
-$ MQTTPASS=mqtt-password infinitive ... -mqtt tcp://mqtt-username@mqtt-broker-ip:1883
+$ MQTTPASS=mqtt-password infinitive ... -mqtt tcp://mqtt-username@mqtt-broker-host:1883
 ```
 password and username are optional, as needed by your MQTT broker.  Password is passed in the environment so as
 not to be visible in "ps" etc.
@@ -464,7 +464,7 @@ Infinitive reads and writes information from the Infinity thermostat.  It also g
 
 #### Bus Logging
 
-By adding the --rlog command line option, you can request infinitive to log every request and response seen on the serial bus into a log file, for offline analysis.  We have some primitive tools for analyzing this data which we may add to the repo at some point.  It has been very helpful for finding some more tricks in the protocol.
+By adding the -rlog command line option, you can request infinitive to log every request and response seen on the serial bus into a log file, for offline analysis.  We have some primitive tools for analyzing this data which we may add to the repo at some point.  It has been very helpful for finding some more tricks in the protocol.
 
 #### Protocol Notes
 Building on the work documented above, a numer of additional details about the protocol have been discovered.  These notes are
