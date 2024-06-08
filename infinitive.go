@@ -128,6 +128,8 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 				presetz = "hold"
 			}
 
+			zName := string(bytes.Trim(cfg.ZName[zi][:], " \000"))
+
 			zoneArr[zc] = TStatZoneConfig{
 					ZoneNumber:       uint8(zi+1),
 					CurrentTemp:      params.ZCurrentTemp[zi],
@@ -139,9 +141,12 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 					CoolSetpoint:     cfg.ZCoolSetpoint[zi],
 					OvrdDuration:     holdTime(cfg.ZOvrdDuration[zi]),
 					OvrdDurationMins: cfg.ZOvrdDuration[zi],
-					ZoneName:         string(bytes.Trim(cfg.ZName[zi][:], " \000")) }
+					ZoneName:         zName }
 
 			zc++
+
+			// trigger MQTT discovery topic in case neede
+			mqttDiscoverZone(zi, zName)
 		}
 	}
 

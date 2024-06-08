@@ -308,6 +308,11 @@ System-global topics:
 * `infinitive/action`: Current action, Home Assistant compatible, currently one of: `off`, `heating`, `cooling`, `idle`
 * `infinitive/rawMode`: numeric representation of mode and action, a uint8 value - useful to developers for discovery
 * `infinitive/humidity`: current humidity as reported by thermostat, in percent RH
+* `infinitive/coolStage`: compressor operating stage reported by outdoor unit, as a number 0/1/2
+* `infinitive/heatStage`: furnace operating stage, as a number 0/1/2; in HP systems this represents electric/emergency heat
+* `infinitive/blowerRPM`: blower speed reported by inside unit, in RPM, 0 when off
+* `infinitive/airflowCFM`: airflow speed reported by inside unit, in cf/m, 0 when off
+* `infinitive/staticPressure`: static pressure reported by inside unit, in inches wc
 
 Global Vacation topics, apply to all zones:
 * `infinitive/vacation/active`: flag whether Vacation mode is in effect - `true` or `false`
@@ -322,12 +327,7 @@ Global Vacation topics, apply to all zones:
 Experimental, may change or disappear over time:
 * `infinitive/coilTemp`: coil temp reported by outdoor unit, in 0.125-degree resolution
 * `infinitive/outsideTemp`: outside temp reported by outdoor unit, in 0.125-degree resolution
-* `infinitive/coolStage`: compressor operating stage reported by outdoor unit, as a number 0/1/2
-* `infinitive/heatStage`: furnace operating stage, as a number 0/1/2; in HP systems this represents electric/emergency heat
 * `infinitive/elecHeat`: bool flag indicating HP air handler is operating on electric heat
-* `infinitive/blowerRPM`: blower speed reported by inside unit, in RPM, 0 when off
-* `infinitive/airflowCFM`: airflow speed reported by inside unit, in cf/m, 0 when off
-* `infinitive/staticPressure`: static pressure reported by inside unit, in inches wc
 
 Reported per zone, where X is a zone number 1-8:
 * `infinitive/zone/X/currentTemp`: current temperature as reported by thermostat, in whole degrees

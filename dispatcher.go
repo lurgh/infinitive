@@ -13,11 +13,20 @@ type EventListener struct {
 	ch chan []byte
 }
 
-type discoveryTopic struct {
+type discoveryTopicSensor struct {
 	Topic       string    `json:"state_topic"`
 	Name        string    `json:"name"`
 	Device_class string   `json:"device_class,omitempty"`
 	UoM         string   `json:"unit_of_measurement,omitempty"`
+	Unique_id   string    `json:"unique_id"`
+}
+
+type discoveryTopicButton struct {
+	Topic       string    `json:"command_topic"`
+	Name        string    `json:"name"`
+	Payload_Press string  `json:"payload_press,omitempty"`
+	Qos         int    `json:"qos,omitempty"`
+	Retain      bool    `json:"retain,omitempty"`
 	Unique_id   string    `json:"unique_id"`
 }
 
@@ -41,6 +50,8 @@ type MqttConn struct {
 var Dispatcher *EventDispatcher = newEventDispatcher()
 
 var mqttClient mqtt.Client
+
+var mqttZoneFlags [8]bool
 
 func newEventDispatcher() *EventDispatcher {
 	return &EventDispatcher{
@@ -183,7 +194,7 @@ func mqttOnConnect(cl mqtt.Client) {
 		log.Info("MQTT: subscribe succeeded for infinitive/+/set")
 	}
 
-	discoveryTopics := []discoveryTopic {
+	sensors := []discoveryTopicSensor {
 		{ "infinitive/outdoorTemp", "HVAC Outdoor Temperature", "temperature", "°F", "hvac-sensors-odt" },
 		{ "infinitive/humidity", "HVAC Indoor Humidity", "humidity", "%", "hvac-sensors-hum" },
 		{ "infinitive/rawMode", "HVAC Raw Mode", "", "", "hvac-sensors-rawmode" },
@@ -213,24 +224,89 @@ func mqttOnConnect(cl mqtt.Client) {
 		{ "infinitive/zone/2/overrideDurationMins", "HVAC Zone 2 Override Duration", "duration", "min", "hvac-sensors-z2-odur" },
 	}
 
-	// write discovery topics for HA
+	buttons := []discoveryTopicButton {
+		{ "infinitive/vacation/hours/set", "Vacation Cancel", "0", 0, false, "hvac-vac-can" },
+		{ "infinitive/vacation/hours/set", "Vacation 1 Hour", "1", 0, false, "hvac-vac-1hr" },
+		{ "infinitive/vacation/hours/set", "Vacation 2 Hours", "2", 0, false, "hvac-vac-2hr" },
+		{ "infinitive/vacation/hours/set", "Vacation 4 Hours", "4", 0, false, "hvac-vac-4hr" },
+		{ "infinitive/vacation/hours/set", "Vacation 8 Hours", "8", 0, false, "hvac-vac-8hr" },
+		{ "infinitive/vacation/hours/set", "Vacation 12 Hours", "12", 0, false, "hvac-vac-12hr" },
+		{ "infinitive/vacation/hours/set", "Vacation 18 Hours", "18", 0, false, "hvac-vac-18hr" },
+		{ "infinitive/vacation/days/set", "Vacation 1 Day", "1", 0, false, "hvac-vac-1d" },
+		{ "infinitive/vacation/days/set", "Vacation 2 Days", "2", 0, false, "hvac-vac-2d" },
+		{ "infinitive/vacation/days/set", "Vacation 3 Days", "3", 0, false, "hvac-vac-3d" },
+		{ "infinitive/vacation/days/set", "Vacation 4 Days", "4", 0, false, "hvac-vac-4d" },
+		{ "infinitive/vacation/days/set", "Vacation 5 Days", "5", 0, false, "hvac-vac-5d" },
+		{ "infinitive/vacation/days/set", "Vacation 6 Days", "6", 0, false, "hvac-vac-6d" },
+		{ "infinitive/vacation/days/set", "Vacation 7 Days", "7", 0, false, "hvac-vac-7d" },
+	}
+
+	// write discovery topics for HA sensors
 	/*
 	_ = cl.Publish("homeassistant/sensor/infinitive/hs/config", 0, true,
 		`{"state_topic": "infinitive/heatStage","state_class": "measurement",
 		"name": "Heat Stage",
 		"unique_id": "hvac-sensors-heatstage"}`)
 		*/
-	for _, v := range discoveryTopics {
-		log.Errorf("MQTT STR %v", &v)
+	for _, v := range sensors {
 		j, err := json.Marshal(&v)
-		log.Errorf("MQTT PUB %v: %s", err, j)
+		log.Infof("MQTT PUB %v: %s", err, j)
 		if err == nil {
 			_ = cl.Publish("homeassistant/sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
 		}
 	}
 
+	// write discovery topics for HA buttons
+	for _, v := range buttons {
+		j, err := json.Marshal(&v)
+		log.Infof("MQTT PUB %v: %s", err, j)
+		if err == nil {
+			_ = cl.Publish("homeassistant/button/infinitive/" + v.Unique_id + "/config", 0, true, j)
+		}
+	}
+
+	// flush the "zone discovery written" flags
+	mqttZoneFlags = [8]bool{}
+
 	// flush the MQTT value cache
 	mqttCache.clear()
+}
+
+func mqttDiscoverZone(zi int, zn string) {
+
+	if mqttZoneFlags[zi] || !mqttClient.IsConnected() {
+		return
+	}
+
+	// write discovery topics for a HA climate entity
+	climateTemplate := `{
+	"name": "%[1]s",
+	"modes": [ "off", "cool", "heat", "auto" ],
+	"fan_modes": [ "high", "med", "low", "auto" ],
+	"preset_modes": [ "hold", "vacation" ],
+	"current_humidity_topic": "infinitive/zone/%[2]d/humidity",
+	"current_temperature_topic": "infinitive/zone/%[2]d/currentTemp",
+	"fan_mode_state_topic": "infinitive/zone/%[2]d/fanMode",
+	"mode_state_topic": "infinitive/mode",
+	"action_topic": "infinitive/action",
+	"temperature_high_state_topic": "infinitive/zone/%[2]d/coolSetpoint",
+	"temperature_low_state_topic": "infinitive/zone/%[2]d/heatSetpoint",
+	"fan_mode_command_topic": "infinitive/zone/%[2]d/fanMode/set",
+	"mode_command_topic": "infinitive/mode/set",
+	"temperature_high_command_topic": "infinitive/zone/%[2]d/coolSetpoint/set",
+	"temperature_low_command_topic": "infinitive/zone/%[2]d/heatSetpoint/set",
+	"preset_mode_state_topic": "infinitive/zone/%[2]d/preset",
+	"preset_mode_command_topic": "infinitive/zone/%[2]d/preset/set",
+	"temp_step": 1,
+	"unique_id": "hvac-zone-%[2]d-ad"
+}`
+
+	dmsg := fmt.Sprintf(climateTemplate, zn, zi+1)
+	duid := fmt.Sprintf("climate-zone-%d", zi+1)
+	log.Info("MQTT ZONE DISC: ", dmsg)
+	_ = mqttClient.Publish("homeassistant/climate/infinitive/" + duid + "/config", 0, true, dmsg)
+
+	mqttZoneFlags[zi] = true
 }
 
 func init() {
