@@ -441,8 +441,8 @@ up to 1 second, due to the thermostat polling interval.
 
 Global topics:
 * `infinitive/mode/set`: Set the main operating mode (same options as above)
-* `infinitive/vacation/hours/set`: set Vacation mode time in hours (set to 0 to cancel)
-* `infinitive/vacation/days/set`: set Vacation mode time in days (set to 0 to cancel)
+* `infinitive/vacation/hours/set`: set Vacation mode time in hours; set to 0 to cancel, or prefix with '+' or '-' for relative settings
+* `infinitive/vacation/days/set`: set Vacation mode time in days; set to 0 to cancel, or prefix with '+' or '-' for relative settings
 
 Zone topics:
 * `infinitive/zone/X/coolSetpoint/set`: set the cool set point, as above

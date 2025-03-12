@@ -227,12 +227,16 @@ func mqttOnConnect(cl mqtt.Client) {
 
 	buttons := []discoveryTopicButton {
 		{ "infinitive/vacation/hours/set", "Vacation Cancel", "0", 0, false, "hvac-vac-can" },
+		{ "infinitive/vacation/hours/set", "Vacation Add 1 Hour", "+1", 0, false, "hvac-vac-plus1" },
+		{ "infinitive/vacation/hours/set", "Vacation Subtract 1 Hour", "-1", 0, false, "hvac-vac-minus1" },
 		{ "infinitive/vacation/hours/set", "Vacation 1 Hour", "1", 0, false, "hvac-vac-1hr" },
 		{ "infinitive/vacation/hours/set", "Vacation 2 Hours", "2", 0, false, "hvac-vac-2hr" },
 		{ "infinitive/vacation/hours/set", "Vacation 4 Hours", "4", 0, false, "hvac-vac-4hr" },
 		{ "infinitive/vacation/hours/set", "Vacation 8 Hours", "8", 0, false, "hvac-vac-8hr" },
 		{ "infinitive/vacation/hours/set", "Vacation 12 Hours", "12", 0, false, "hvac-vac-12hr" },
 		{ "infinitive/vacation/hours/set", "Vacation 18 Hours", "18", 0, false, "hvac-vac-18hr" },
+		{ "infinitive/vacation/days/set", "Vacation Add 1 Day", "+1", 0, false, "hvac-vac-plus1d" },
+		{ "infinitive/vacation/days/set", "Vacation Subtract 1 Day", "-1", 0, false, "hvac-vac-minus1d" },
 		{ "infinitive/vacation/days/set", "Vacation 1 Day", "1", 0, false, "hvac-vac-1d" },
 		{ "infinitive/vacation/days/set", "Vacation 2 Days", "2", 0, false, "hvac-vac-2d" },
 		{ "infinitive/vacation/days/set", "Vacation 3 Days", "3", 0, false, "hvac-vac-3d" },

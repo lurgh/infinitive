@@ -304,25 +304,43 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 }
 
 // write a change to a single parameter of a vacation setting
+// param is 'day' or 'hour'
+// value is integer possibly with + or - to mean relative
 // returns ok == true
 func putVacationConfig(param string, value string) bool {
 	params := TStatVacationParams{}
 	apiConfig := APIVacationConfig{}
+	bDays := uint8(0)
+	bHours := uint16(0)
+
+	// for relative setting, starting with a + or -, get the current value first
+	
+	if (value[0] == '+' || value[0] == '-') {
+		if apiCfg1, ok1 := getVacationConfig(); ok1 == true {
+			bDays = *apiCfg1.Days
+			bHours = *apiCfg1.Hours
+			log.Infof("putVacationConfig: Relative mode:bDays=%d, bHours=%d", bDays, bHours)
+		} else {
+			log.Errorf("putVacationConfig: Relative mode: getVacationConfig failed!")
+		}
+	}
 
 	switch param {
 	case "days":
-		if val, err := strconv.ParseUint(value, 10, 8); err != nil {
+		if val, err := strconv.ParseInt(value, 10, 8); err != nil {
 			log.Errorf("putVacationConfig: invalid days value '%s'", value)
 			return false
 		} else {
+			val = max(0, val + int64(bDays))
 			v8 := uint8(val)
 			apiConfig.Days = &v8
 		}
 	case "hours":
-		if val, err := strconv.ParseUint(value, 10, 16); err != nil {
+		if val, err := strconv.ParseInt(value, 10, 16); err != nil {
 			log.Errorf("putVacationConfig: invalid days value '%s'", value)
 			return false
 		} else {
+			val = max(0, val + int64(bHours))
 			v16 := uint16(val)
 			apiConfig.Hours = &v16
 		}
