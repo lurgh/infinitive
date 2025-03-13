@@ -99,12 +99,14 @@ func getVacationConfig() (*APIVacationConfig, bool) {
 var _tstat_settings TStatSettings
 
 func getZonesConfig() (*TStatZonesConfig, bool) {
-	// static
-	if _tstat_settings.DealerName[0] != 0 {
+	// only get the TStatSettings once after startup
+	if _tstat_settings.DealerName[0] == 0 {
+		log.Debugf("getZonesConfig: getting TStatSettings to determine temp units")
 		ok := infinity.ReadTable(devTSTAT, &_tstat_settings)
 		if !ok {
 			return nil, false
 		}
+		log.Debugf("getZonesConfig: got temp units = %d", _tstat_settings.TempUnits)
 	}
 
 	cfg := TStatZoneParams{}
