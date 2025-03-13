@@ -384,12 +384,21 @@ HomeAssistant MQTT Discovery topics published:
   * all the "global" sensors: `outdoorTemp`, `humidity`, `rawMode`, `blowerRPM`, `airflowCFM`, `staticPressure`, `coolStage`, `heatStage`, `action`
   * all the vacation sensors: `vacation/active`, `vacation/days`, `vacation/hours`, `vacation/minTemp`, `vacation/maxTemp`, `vacation/minHumidity`, `vacation/maxHumidity`, `vacation/fanMode`
   * per-zone "bonus" sensors (not supported by the Climate integration): `damperPos`, `flowWeight`, `overrideDurationMins`
+* `homeassistant/button/infinitive/*/config`: discovery topics to create "buttons" as a convenience to manipulate vacation timing:
+  * "Vacation Cancel", "Vacation Add 1 Hour", "Vacation Subtract 1 Hour", "Vacation 1 Hour", and so on (total of 18 buttons)
+* `homeassistant/climate/infinitive/*/config`: discovery topics, one per zone, for an MQTT HVAC climate entity, which includes:
+  * Zone name, temperature unit and increment, and enumerations of the modes, fan modes, and preset modes
+  * MQTT topic names for receiving current mode, action, fan mode, preset mode, temperature, humnidity, and setpoints
+  * MQTT topic names for setting mode, fan mode, preset mode, and setpoints
 
-If the MQTT integration and MQTT Discovery are enabled in your HomeAssistant instance, 19 or more sensors will be created.  For now you need to
-manually configure the MQTT Climate entities per zone, by adding data like this to your configuration.yaml file with one "climate" per zone and
-adjusting the name and the zone number inside the topic names as appropriate:
+If the MQTT integration and MQTT Discovery are enabled in your HomeAssistant instance, a dozen or more sensors, 18 buttons, and one
+HVAC climate entity per zone, will be created.  The discovery message is sent once each time Infinitive starts up, so restart it if you need
+it to be re-sent.
+
+If you choose not to enable discovery, you can create your sensors and climate entities manually in the config file.  For example:
 
 ```
+# optional, if not using MQTT Discovery
 mqtt:
   - climate:
       name: Downstairs
@@ -420,11 +429,10 @@ mqtt:
       preset_mode_state_topic: infinitive/zone/1/preset
       preset_mode_command_topic: infinitive/zone/1/preset/set
       temp_step: 1
+      temperature_unit: F
       unique_id: hvac-zone-1x
 
 ```
-
-MQTT Discovery will be added soon to create the MQTT Climate entities.
 
 Upon shutdown, the MQTT discovery topics will be withdrawn, causing the sensors to be removed from HA.  
 They will return after a restart.

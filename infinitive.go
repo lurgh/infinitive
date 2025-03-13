@@ -95,7 +95,18 @@ func getVacationConfig() (*APIVacationConfig, bool) {
 
 // get config and status for all zones in one go
 // this is more efficient than getting each zone separately since all the zones' data comes in one pair of serial transactions
+// we only get the TstatSettings once, since it is assumed not to change without us restarting to pick it up
+var _tstat_settings TStatSettings
+
 func getZonesConfig() (*TStatZonesConfig, bool) {
+	// static
+	if _tstat_settings.DealerName[0] != 0 {
+		ok := infinity.ReadTable(devTSTAT, &_tstat_settings)
+		if !ok {
+			return nil, false
+		}
+	}
+
 	cfg := TStatZoneParams{}
 	ok := infinity.ReadTable(devTSTAT, &cfg)
 	if !ok {
@@ -145,8 +156,8 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 
 			zc++
 
-			// trigger MQTT discovery topic in case neede
-			mqttDiscoverZone(zi, zName)
+			// trigger MQTT discovery topic in case needed
+			mqttDiscoverZone(zi, zName, _tstat_settings.TempUnits)
 		}
 	}
 

@@ -277,7 +277,8 @@ func mqttOnConnect(cl mqtt.Client) {
 	mqttCache.clear()
 }
 
-func mqttDiscoverZone(zi int, zn string) {
+// post discovery message if needed
+func mqttDiscoverZone(zi int, zn string, tu uint8) {
 
 	if mqttZoneFlags[zi] || !mqttClient.IsConnected() {
 		return
@@ -303,10 +304,13 @@ func mqttDiscoverZone(zi int, zn string) {
 	"preset_mode_state_topic": "infinitive/zone/%[2]d/preset",
 	"preset_mode_command_topic": "infinitive/zone/%[2]d/preset/set",
 	"temp_step": 1,
+	"temperature_unit": "%[3]s",
 	"unique_id": "hvac-zone-%[2]d-ad"
 }`
 
-	dmsg := fmt.Sprintf(climateTemplate, zn, zi+1)
+	tempu := "F"
+	if tu > 0 { tempu = "C" }
+	dmsg := fmt.Sprintf(climateTemplate, zn, zi+1, tempu)
 	duid := fmt.Sprintf("climate-zone-%d", zi+1)
 	log.Info("MQTT ZONE DISC: ", dmsg)
 	_ = mqttClient.Publish("homeassistant/climate/infinitive/" + duid + "/config", 0, true, dmsg)
