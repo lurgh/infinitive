@@ -161,6 +161,7 @@ func ConnectMqtt(url string, password string) {
 	co.SetConnectRetryInterval(time.Minute)
 	co.SetAutoReconnect(true)
 	co.SetMaxReconnectInterval(5 * time.Minute)
+	co.SetWill(instanceName + "/available", "offline", 0, true)	// set a "will" to change the status to not-alive on disconnect
 
 	// create client
 	mqttClient = mqtt.NewClient(co)
@@ -202,6 +203,15 @@ func mqttOnConnect(cl mqtt.Client) {
 		log.Errorf("MQTT: failed to subscribe for %s: %v", topic, t.Error())
 	} else {
 		log.Infof("MQTT: subscribe succeeded for %s", topic)
+	}
+
+	// declaring as alive
+	t = cl.Publish(instanceName + "/available", 0, true, "online")
+	t.Wait()
+	if (t.Error() != nil) {
+		log.Errorf("MQTT: failed to publish 'available' status: %v", t.Error())
+	} else {
+		log.Infof("MQTT: published 'available' status as 'online'")
 	}
 
 	sensors := []discoveryTopicSensor {
@@ -318,6 +328,7 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 	"preset_mode_command_topic": "%[4]s/zone/%[2]d/preset/set",
 	"temp_step": 1,
 	"temperature_unit": "%[3]s",
+	"availability_topic": "%[4]s/available",
 	"unique_id": "%[4]s-hvac-zone-%[2]d-ad"
 }`
 
