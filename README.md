@@ -134,6 +134,7 @@ The instance name currently just affects MQTT; it is used in two ways:
 Use this option with care: when Infinitive is started with a new
 Instance name, it will create a complete set of HA entities based on that name.  If this wasn't what you intended,
 you may need to manually remove the retained discovery messages from your MQTT server in order to remove the unwanted entities.
+See the MQTT section below for more information.
 
 ## Building from source
 
@@ -415,10 +416,10 @@ If the MQTT integration and MQTT Discovery are enabled in your Home Assistant in
 HVAC climate entity per zone, will be created.  The discovery messages are sent once each time Infinitive starts up, so restart it if you need
 them to be re-sent, such as after clearing out retained messages.
 
-If your MQTT broker has accumulated retined discovery messages, you will need to delete those retained messages in order to cause
+If your MQTT broker has accumulated retained discovery messages, you will need to delete those retained messages in order to cause
 Home Assistant to delete the unwanted entities.  There are various ways to do it but the most general approach is to publish new retained messages to the same discovery topic names with an empty message field.
 
-If you use the `mosquitto` MQTT broker, you may use a command such as this to remove all of Infinitive's retained discovery messages:
+FOr example, if you use the `mosquitto` MQTT broker, you may use a command such as this to remove all of Infinitive's retained discovery messages:
 
 ```
 mosquitto_sub -v -t homeassistant/+/infinitive/\# --remove-retained
