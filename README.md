@@ -15,6 +15,7 @@ python integration code.  Of course, the MQTT interface could also be useful on 
 Active development and testing are still under way.  In particular we still need to look into the following:
   * Still hoping to figure out how Dehumidify action is represented so we can reflect it in the UI/API - may need to resort to heuristics
   * Fine-tune the detection of actual configured zones - currently using heuristic "currentTemp < 255" but hoping the actual zone configs are hiding in there somewhere
+  * Auto-detect the zone airflow weighting (currently hard-coded to my system)
   * MQTT: maybe support a read-only option
   * MQTT: controls to change per-zone overrideDuration
   * Consider changing MQTT discovery to be device-based
