@@ -16,8 +16,7 @@ Active development and testing are still under way.  In particular we still need
   * Still hoping to figure out how Dehumidify action is represented so we can reflect it in the UI/API - may need to resort to heuristics
   * Fine-tune the detection of actual configured zones - currently using heuristic "currentTemp < 255" but hoping the actual zone configs are hiding in there somewhere
   * Review API enhancements from the Will1604 fork to see if anything useful to pick up
-  * MQTT: potentially add a "system ID" and maybe support a read-only option
-  * MQTT: add homeassitant discovery topics for the Climate entities (all the primitive sensors and controls already have it)
+  * MQTT: maybe support a read-only option
   * MQTT: controls to change per-zone overrideDuration
   * MQTT: ensure published data goes stale/unavailable when infinitive stops or fails in various ways
   * Consider moving the per-zone "bonus" sensors into a single JSON attributes object compatible with MQTT Climate integration
@@ -116,6 +115,25 @@ password and username are optional, as needed by your MQTT broker.  Password is 
 not to be visible in "ps" etc.
 
 See below for MQTT schema and more notes about using it.
+
+  * Set a different instance name (useful when you need to run multiple instances of infinitive)
+```
+$ infinitive ... -instance=name
+```
+This sets the instance name to be 'name', typically something other than 'infinitive'.
+Any characters other than '*', '+', '/', '$', and '#' are accepted.  Infinitive does not constrain the
+length but it is best to keep it short since there are often tight constraints within MQTT agents.
+
+The instance name currently just affects MQTT; it is used in two ways:
+    * it is a prefix on every MQTT topic published or subscribed; therefore it allows two different instances
+      of Infinitive to pub/sub on different topic name trees, e.g. inf-upstairs and inf-downstairs, without conflicting
+    * it is used to create distinct unique IDs for all HA entities created by MQTT Discovery; therefore it
+      allows separate instances of HA entities to be created automatically, referring to the distinct MQTT topics
+      mentioned above, wiithout confusion or conflict
+
+Use this option with care: when Infinitive is started with a new
+Instance name, it will create a complete set of HA entities based on that name.  If this wasn't what you intended,
+you may need to manually remove the retained discovery messages from your MQTT server in order to remove the unwanted entities.
 
 ## Building from source
 
@@ -335,7 +353,9 @@ Communication with the MQTT broker is reasonably robust in the sense that a down
 block startup, and we will reconnect in event of network drops, restarts or similar.  
 MQTT connection state and communication with the MQTT broker are logged in the stderr log.
 
-When enabled by providing the MQTT broker URI and optional password, the following topics are supported:
+When enabled by providing the MQTT broker URI and optional password, the following topics are supported.  Note that
+the initial topic level 'infinitive' can be replaced with something unique by specifying the '-instance'
+command-line option.
 
 ### Topics Published
 
@@ -391,9 +411,18 @@ HomeAssistant MQTT Discovery topics published:
   * MQTT topic names for receiving current mode, action, fan mode, preset mode, temperature, humnidity, and setpoints
   * MQTT topic names for setting mode, fan mode, preset mode, and setpoints
 
-If the MQTT integration and MQTT Discovery are enabled in your HomeAssistant instance, a dozen or more sensors, 18 buttons, and one
-HVAC climate entity per zone, will be created.  The discovery message is sent once each time Infinitive starts up, so restart it if you need
-it to be re-sent.
+If the MQTT integration and MQTT Discovery are enabled in your Home Assistant instance, a dozen or more sensors, 18 buttons, and one
+HVAC climate entity per zone, will be created.  The discovery messages are sent once each time Infinitive starts up, so restart it if you need
+them to be re-sent, such as after clearing out retained messages.
+
+If your MQTT broker has accumulated retined discovery messages, you will need to delete those retained messages in order to cause
+Home Assistant to delete the unwanted entities.  There are various ways to do it but the most general approach is to publish new retained messages to the same discovery topic names with an empty message field.
+
+If you use the `mosquitto` MQTT broker, you may use a command such as this to remove all of Infinitive's retained discovery messages:
+
+```
+mosquitto_sub -v -t homeassistant/+/infinitive/\# --remove-retained
+```
 
 If you choose not to enable discovery, you can create your sensors and climate entities manually in the config file.  For example:
 

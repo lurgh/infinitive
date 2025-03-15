@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -73,6 +74,10 @@ type Logger struct {
 var RLogger Logger;
 
 var infinity *InfinityProtocol
+
+// system instance name (default: "infinitive")
+//  used as the root mqtt topic name and to unique-ify entities
+var instanceName string
 
 func holdTime(ht uint16) string {
 	if ht == 0 {
@@ -445,7 +450,7 @@ func statePoller(monArray []uint16) {
 
 		if c1ok {
 			wsCache.update("tstat", c1)
-			pf := "mqtt/infinitive"
+			pf := fmt.Sprintf("mqtt/%s", instanceName)
 			var hum uint8
 			for zi := range c1.Zones {
 				zp := fmt.Sprintf("%s/zone/%d", pf, c1.Zones[zi].ZoneNumber)
@@ -475,7 +480,7 @@ func statePoller(monArray []uint16) {
 
 		if c2ok {
 			wsCache.update("vacation", c2)
-			pf := "mqtt/infinitive/vacation"
+			pf := fmt.Sprintf("mqtt/%s/vacation", instanceName)
 			mqttCache.update(pf+"/active", *c2.Active)
 			mqttCache.update(pf+"/days", *c2.Days)
 			mqttCache.update(pf+"/hours", *c2.Hours)
@@ -519,13 +524,13 @@ func attachSnoops() {
 				log.Debugf("heat pump coil temp is: %f", heatPump.CoilTemp)
 				log.Debugf("heat pump outside temp is: %f", heatPump.OutsideTemp)
 				wsCache.update("heatpump", &heatPump)
-				mqttCache.update("mqtt/infinitive/coilTemp", heatPump.CoilTemp)
-				mqttCache.update("mqtt/infinitive/outsideTemp", heatPump.OutsideTemp)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/coilTemp", instanceName), heatPump.CoilTemp)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/outsideTemp", instanceName), heatPump.OutsideTemp)
 			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x3e, 0x02}) {
 				heatPump.Stage = data[0] >> 1
 				log.Debugf("HP stage is: %d", heatPump.Stage)
 				wsCache.update("heatpump", &heatPump)
-				mqttCache.update("mqtt/infinitive/coolStage", heatPump.Stage)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/coolStage", instanceName), heatPump.Stage)
 			}
 		}
 	})
@@ -539,7 +544,7 @@ func attachSnoops() {
 				airHandler.BlowerRPM = binary.BigEndian.Uint16(data[1:3])
 				log.Debugf("blower RPM is: %d", airHandler.BlowerRPM)
 				wsCache.update("blower", &airHandler)
-				mqttCache.update("mqtt/infinitive/blowerRPM", airHandler.BlowerRPM)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/blowerRPM", instanceName), airHandler.BlowerRPM)
 			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x03, 0x16}) {
 				airHandler.HeatStage = uint8(data[0])
 				airHandler.AirFlowCFM = binary.BigEndian.Uint16(data[4:6])
@@ -555,10 +560,10 @@ func attachSnoops() {
 				}
 				log.Debugf("air flow CFM is: %d", airHandler.AirFlowCFM)
 				wsCache.update("blower", &airHandler)
-				mqttCache.update("mqtt/infinitive/heatStage", airHandler.HeatStage)
-				mqttCache.update("mqtt/infinitive/action", airHandler.Action)
-				mqttCache.update("mqtt/infinitive/airflowCFM", airHandler.AirFlowCFM)
-				mqttCache.update("mqtt/infinitive/staticPressure", airHandler.StaticPressure)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/heatStage", instanceName), airHandler.HeatStage)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/action", instanceName), airHandler.Action)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/airflowCFM", instanceName), airHandler.AirFlowCFM)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/staticPressure", instanceName), airHandler.StaticPressure)
 			}
 		}
 	})
@@ -574,7 +579,7 @@ func attachSnoops() {
 				for zi := range damperPos.DamperPos {
 					if data[zi] != 0xff {
 						damperPos.DamperPos[zi] = uint8(data[zi])
-						mqttCache.update(fmt.Sprintf("mqtt/infinitive/zone/%d/damperPos", zi+1), uint(damperPos.DamperPos[zi]) * 100 / 15)
+						mqttCache.update(fmt.Sprintf("mqtt/%s/zone/%d/damperPos", instanceName, zi+1), uint(damperPos.DamperPos[zi]) * 100 / 15)
 						tdw += zoneWeight[zi] * float32(damperPos.DamperPos[zi])
 					}
 				}
@@ -583,7 +588,7 @@ func attachSnoops() {
 					for zi := range damperPos.DamperPos {
 						if data[zi] != 0xff {
 							damperPos.DamperPos[zi] = uint8(data[zi])
-							mqttCache.update(fmt.Sprintf("mqtt/infinitive/zone/%d/flowWeight", zi+1), (zoneWeight[zi] * float32(damperPos.DamperPos[zi]) / tdw))
+							mqttCache.update(fmt.Sprintf("mqtt/%s/zone/%d/flowWeight", instanceName, zi+1), (zoneWeight[zi] * float32(damperPos.DamperPos[zi]) / tdw))
 						}
 					}
 				}
@@ -662,10 +667,19 @@ func main() {
 	httpPort := flag.Int("httpport", 8080, "HTTP port to listen on")
 	serialPort := flag.String("serial", "", "path to serial port")
 	mqttBrokerUrl := flag.String("mqtt", "", "url for mqtt broker")
+	instance := flag.String("instance", "infinitive", "unique system instance name")
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
 	doDebugLog := flag.Bool("debug", false, "enable debug log level")
 
 	flag.Parse()
+
+	// validate the instance name
+	if instance != nil && len(*instance) < 0 || len(*instance) > 32 || strings.ContainsAny(*instance, "$#+*/") {
+		fmt.Print("invalid instance name")
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+	instanceName = *instance
 
 	if len(*serialPort) == 0 {
 		fmt.Print("must provide serial\n")
