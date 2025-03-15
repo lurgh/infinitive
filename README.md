@@ -15,10 +15,9 @@ python integration code.  Of course, the MQTT interface could also be useful on 
 Active development and testing are still under way.  In particular we still need to look into the following:
   * Still hoping to figure out how Dehumidify action is represented so we can reflect it in the UI/API - may need to resort to heuristics
   * Fine-tune the detection of actual configured zones - currently using heuristic "currentTemp < 255" but hoping the actual zone configs are hiding in there somewhere
-  * Review API enhancements from the Will1604 fork to see if anything useful to pick up
   * MQTT: maybe support a read-only option
   * MQTT: controls to change per-zone overrideDuration
-  * MQTT: ensure published data goes stale/unavailable when infinitive stops or fails in various ways
+  * Consider changing MQTT discovery to be device-based
   * Consider moving the per-zone "bonus" sensors into a single JSON attributes object compatible with MQTT Climate integration
 
 This README has been updated with some info about this fork but more needs to be written.
@@ -419,7 +418,7 @@ them to be re-sent, such as after clearing out retained messages.
 If your MQTT broker has accumulated retained discovery messages, you will need to delete those retained messages in order to cause
 Home Assistant to delete the unwanted entities.  There are various ways to do it but the most general approach is to publish new retained messages to the same discovery topic names with an empty message field.
 
-FOr example, if you use the `mosquitto` MQTT broker, you may use a command such as this to remove all of Infinitive's retained discovery messages:
+For example, if you use the `mosquitto` MQTT broker, you may use a command such as this to remove all of Infinitive's retained discovery messages:
 
 ```
 mosquitto_sub -v -t homeassistant/+/infinitive/\# --remove-retained
