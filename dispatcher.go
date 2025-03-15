@@ -213,16 +213,16 @@ func mqttOnConnect(cl mqtt.Client) {
 		{ "/staticPressure", "HVAC Static Pressure", "distance", "measurement", "in", "hvac-sensors-ahsp" },
 		{ "/coolStage", "HVAC Cool Stage", "", "measurement", "", "hvac-sensors-acstage" },
 		{ "/heatStage", "HVAC Heat Stage", "", "measurement", "", "hvac-sensors-heatstage" },
-		{ "/action", "HVAC Action", "enum", "measurement", "", "hvac-sensors-actn" },
+		{ "/action", "HVAC Action", "enum", "", "", "hvac-sensors-actn" },
 
-		{ "/vacation/active", "Vacation Mode Active", "enum", "measurement", "", "hvac-sensors-vacay-active" },  // maybe should be a binary_sensor
+		{ "/vacation/active", "Vacation Mode Active", "enum", "", "", "hvac-sensors-vacay-active" },  // maybe should be a binary_sensor
 		{ "/vacation/days", "Vacation Mode Days Remaining", "duration", "measurement", "d", "hvac-sensors-vacay-days" },
 		{ "/vacation/hours", "Vacation Mode Hours Remaining", "duration", "measurement", "h", "hvac-sensors-vacay-hours" },
 		{ "/vacation/minTemp", "Vacation Mode Minimum Temperature", "temperature", "measurement", "°F", "hvac-sensors-vacay-mint" },
 		{ "/vacation/maxTemp", "Vacation Mode Maximum Temperature", "temperature", "measurement", "°F", "hvac-sensors-vacay-maxt" },
 		{ "/vacation/minHumidity", "Vacation Mode Minimum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-minh" },
 		{ "/vacation/maxHumidity", "Vacation Mode Maximum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-maxh" },
-		{ "/vacation/fanMode", "Vacation Mode Fan Mode", "enum", "measurement", "", "hvac-sensors-vacay-fm" },
+		{ "/vacation/fanMode", "Vacation Mode Fan Mode", "enum", "", "", "hvac-sensors-vacay-fm" },
 
 		// per-zone "bonus" sensors (outside of the Climate platform model)
 		// TODO: these should be parametrized, maybe do along with the Climate entities)
