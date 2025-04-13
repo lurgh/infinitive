@@ -140,7 +140,7 @@ See the MQTT section below for more information.
 
 (This section needs some updates and refinement)
 
-If you'd like to build Infinitive from source, first confirm you have a working Go environment (I've been using release 1.20.6).  Ensure your GOPATH and GOHOME are set correctly, then:
+If you'd like to build Infinitive from source, first confirm you have a working Go environment - current minimum version is 1.21.  Ensure your GOPATH and GOHOME are set correctly, then:
 
 ```
 $ go get github.com/lurgh/infinitive
@@ -348,7 +348,7 @@ is provided to access the broker.  We recommend at least using password authenti
 
 All topics are published with the `retain` flag set so any new client will get all current values; updates are only posted
 at startup or as individual values change.  This does mean that clients could be susceptible to seeing old data if the
-service is no longer running.  Looking for a solution to ensure MQTT clients can determine when monitoring has failed or stopped.
+service is no longer running, so it is important that clients monitor the `/available` topic to determine the validity of the MQTT data.
 
 Communication with the MQTT broker is reasonably robust in the sense that a down MQTT broker will not
 block startup, and we will reconnect in event of network drops, restarts or similar.  
@@ -361,6 +361,7 @@ command-line option.
 ### Topics Published
 
 System-global topics:
+* `infinitive/available`: status of infinitive's connection to MQTT: `online` or `offline`
 * `infinitive/outdoorTemp`: Outside temp as reported by thermostat, whole number degrees
 * `infinitive/mode`: System main mode normalized for Home Assistant, currently one of: `off`, `cool`, `heat`, `auto`
 * `infinitive/action`: Current action, Home Assistant compatible, currently one of: `off`, `heating`, `cooling`, `idle`
@@ -411,6 +412,7 @@ HomeAssistant MQTT Discovery topics published:
   * Zone name, temperature unit and increment, and enumerations of the modes, fan modes, and preset modes
   * MQTT topic names for receiving current mode, action, fan mode, preset mode, temperature, humnidity, and setpoints
   * MQTT topic names for setting mode, fan mode, preset mode, and setpoints
+  * MQTT "availability" topic name which causes the climate entity to track as Unavailable when infinitive is not running or not able to reach the MQTT broker
 
 If the MQTT integration and MQTT Discovery are enabled in your Home Assistant instance, a dozen or more sensors, 18 buttons, and one
 HVAC climate entity per zone, will be created.  The discovery messages are sent once each time Infinitive starts up, so restart it if you need
@@ -458,14 +460,12 @@ mqtt:
       temperature_low_command_topic: infinitive/zone/1/heatSetpoint/set
       preset_mode_state_topic: infinitive/zone/1/preset
       preset_mode_command_topic: infinitive/zone/1/preset/set
+      availability_topic: infinitive/available
       temp_step: 1
       temperature_unit: F
       unique_id: hvac-zone-1x
 
 ```
-
-Upon shutdown, the MQTT discovery topics will be withdrawn, causing the sensors to be removed from HA.  
-They will return after a restart.
 
 ### Topics Subscribed
 
