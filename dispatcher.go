@@ -40,16 +40,6 @@ type EventDispatcher struct {
 	deregister chan *EventListener
 }
 
-type MqttEvent struct {
-	topic string
-	value string
-}
-
-type MqttConn struct {
-	url string	// "tcp://host.com:1883"
-	password string
-}
-
 var Dispatcher *EventDispatcher = newEventDispatcher()
 
 var mqttClient mqtt.Client
@@ -63,10 +53,6 @@ func newEventDispatcher() *EventDispatcher {
 		deregister: make(chan *EventListener),
 		listeners:  make(map[*EventListener]bool),
 	}
-}
-
-func (d *EventDispatcher) dispatch(msg []byte) {
-	d.broadcast <- msg
 }
 
 type broadcastEvent struct {

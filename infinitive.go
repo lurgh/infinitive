@@ -610,7 +610,7 @@ func (l *Logger) Open() (ok bool) {
 		log.Errorf("Failed to open resp log file '%s': %s", rlfn, err)
 		ok = false
 	} else {
-		log.Info("Opened resp log file '%s'", rlfn)
+		log.Infof("Opened resp log file '%s'", rlfn)
 		of := l.f
 		l.f = f
 		l.tds = tds
@@ -633,7 +633,7 @@ func (l *Logger) Close() {
 	if l.f != nil {
 		err := l.f.Close()
 		if (err != nil) {
-			log.Warnf("Error on closing resp logger: %", err)
+			log.Warnf("Error on closing resp logger: '%s'", err)
 		} else {
 			l.f = nil
 		}
@@ -674,7 +674,7 @@ func main() {
 	flag.Parse()
 
 	// validate the instance name
-	if instance != nil && len(*instance) < 0 || len(*instance) > 32 || strings.ContainsAny(*instance, "$#+*/") {
+	if instance == nil || len(*instance) == 0 || len(*instance) > 32 || strings.ContainsAny(*instance, "$#+*/") {
 		fmt.Print("invalid instance name")
 		flag.PrintDefaults()
 		os.Exit(1)
