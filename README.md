@@ -26,6 +26,16 @@ Active development and testing are still under way.  In particular we still need
 
 This README has been updated with some info about this fork but more needs to be written.
 
+## Breaking Changes in May, 2025
+
+We have recently changed the names of some of the entities created by MQTT Discovery to be more consistent and more friendly for
+multi-zone and multi-instance installations.  In particular:
+
+  * "Vacation Mode ..." sensor and buttons have changed to "HVAC Vacation Mode ...", so their entity IDs changed from "vacation_mode_*" to "hvac_vacation_mode_*"
+  * All entities that start with "HVAC" will change to the instance name, with spaces substituted instead of underscores, if the instance name is set.  So for example, if instance name is "Upstairs_AC" then sensors will be named for example "Upstairs AC Vacation Mode ..." with entity IDslike "upstairs_ac_vacation_mode_*"
+  * Climate entities on a zoned system will still be named for each zone; however on a non-zoned system they will now be named for the instance name (underscores translated as above) or, if not set, "HVAC".
+  * Per-zone "bonus sensors" are now named the same as the climate entities they relate to; for example, the sensor that used to be named "Zone 1 Damper Position" will now be "Downstairs Damper Position", or "Upstairs AC Damper Position" or "HVAC Damper Position", matching the climate entities.
+
 # infinitive
 Infinitive impersonates a SAM on a Carrier Infinity system management bus. 
 
@@ -424,6 +434,10 @@ HomeAssistant MQTT Discovery topics published:
 If the MQTT integration and MQTT Discovery are enabled in your Home Assistant instance, a dozen or more sensors, 18 buttons, and one
 MQTT climate entity per zone, will be created.  The discovery messages are sent once each time Infinitive starts up, so restart it if you need
 them to be re-sent, such as after clearing out retained messages.
+
+The Climate and Sensor entities that are created per-zone will be named the same as the zone name within your system; if your system is not zoned,
+they will be named based on the instance name if provided, otherwise "HVAC".  The Sensor and Button entities that are global per system will be named
+based on the instance name if provided, otherwise "HVAC".
 
 If your MQTT broker has accumulated retained discovery messages, you will need to delete those retained messages in order to cause
 Home Assistant to delete the unwanted entities.  There are various ways to do it but the most general approach is to publish new retained messages to the same discovery topic names with an empty message field.
