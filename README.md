@@ -1,7 +1,9 @@
 # THIS FORK IS A WORK IN PROGRESS
 
-This fork of infinitive has added read/write API and UI for multi-zone Infinity systems.  It currently works well (as of October 2023) and has
-been tested on a 2-zone system but it should work on unzoned or up to 4 or 8 zones.  The UI adapts to show the zones that appear to be in use.
+This fork of infinitive has added read/write API and UI for multi-zone Infinity systems, and support for status
+and control via MQTT.  It currently works well (as of May 2025) and is
+reported by various users to support systems of up to 6 zones but it should work on unzoned or up to 4 or 8 zones.
+The UI and MQTT API adapt to show the zones that appear to be in use.
 
 This code has been adapted from extensive previous work of others.  It should still work fine on non-zoned systems but there may be
 some cosmetic cleanup needed; similarly, it was designed around a heatpump
@@ -10,15 +12,16 @@ an HP system any more.  Please provide feedback or fixes.
 
 MQTT support has been added; the schema (topics and data representation) have been crafted to work well with the MQTT Climate integration,
 in an attempt to simplify Home Assitant integration (extending to zones and to reduce polling and improve responsiveness) without custom
-python integration code.  Of course, the MQTT interface could also be useful on its own.
+python integration code.  MQTT Discovery messages are emitted so Home Assistant will automatically create or update all
+the needed Climate and Sensor entities for your system.  Of course, the MQTT interface could also be useful on its own,
+or just not configured if you don't want to use it.
 
 Active development and testing are still under way.  In particular we still need to look into the following:
   * Still hoping to figure out how Dehumidify action is represented so we can reflect it in the UI/API - may need to resort to heuristics
-  * Fine-tune the detection of actual configured zones - currently using heuristic "currentTemp < 255" but hoping the actual zone configs are hiding in there somewhere
-  * Auto-detect the zone airflow weighting (currently hard-coded to my system)
+  * Auto-detect the zone airflow weighting or allow it to be set on the command line (currently hard-coded to the author's system)
   * MQTT: maybe support a read-only option
-  * MQTT: controls to change per-zone overrideDuration
-  * Consider changing MQTT discovery to be device-based
+  * MQTT: add controls to change per-zone overrideDuration
+  * Consider changing MQTT discovery to be device-based rather than just unconnected entities
   * Consider moving the per-zone "bonus" sensors into a single JSON attributes object compatible with MQTT Climate integration
 
 This README has been updated with some info about this fork but more needs to be written.
@@ -116,20 +119,24 @@ not to be visible in "ps" etc.
 
 See below for MQTT schema and more notes about using it.
 
-  * Set a different instance name (useful when you need to run multiple instances of infinitive)
+  * Set a different instance name (useful when you need to run multiple instances of infinitive that will publish to the same MQTT broker)
 ```
 $ infinitive ... -instance=name
 ```
-This sets the instance name to be 'name', typically something other than 'infinitive'.
-Any characters other than '*', '+', '/', '$', and '#' are accepted.  Infinitive does not constrain the
+This sets the instance name to be 'name', typically something other than 'infinitive', and which should be human-readable since it will be used within Home Assistant entity names. 
+Any characters other than ' ', '*', '+', '/', '$', and '#' are accepted.  Infinitive does not constrain the
 length but it is best to keep it short since there are often tight constraints within MQTT agents.
 
-The instance name currently just affects MQTT; it is used in two ways:
-    * it is a prefix on every MQTT topic published or subscribed; therefore it allows two different instances
-      of Infinitive to pub/sub on different topic name trees, e.g. inf-upstairs and inf-downstairs, without conflicting
-    * it is used to create distinct unique IDs for all HA entities created by MQTT Discovery; therefore it
-      allows separate instances of HA entities to be created automatically, referring to the distinct MQTT topics
+The instance name currently just affects MQTT; it is used in these ways:
+    * it is a prefix on every MQTT topic published or subscribed; therefore it allows multiple instances
+      of Infinitive to pub/sub on different topic name trees, e.g. "HVAC_Upstairs" and "HVAC_Downstairs", without conflicting
+    * it is used to create distinct discovery topics, unique IDs and entity names for all HA entities created by MQTT Discovery; therefore it
+      separate instances of HA entities will be created automatically, with distinct names, referring to the distinct MQTT topics
       mentioned above, wiithout confusion or conflict
+    * it is used as the name of the Climate entity for unzoned systems (or when the zone name is "ZONE 1")
+
+When the instance name is uesd to create entity names, underscore "_" characters will be changed to spaces.
+So for example. "Upstairs_AC" will create entities named "Upstairs AC Action", etc.
 
 Use this option with care: when Infinitive is started with a new
 Instance name, it will create a complete set of HA entities based on that name.  If this wasn't what you intended,
@@ -407,7 +414,7 @@ HomeAssistant MQTT Discovery topics published:
   * all the vacation sensors: `vacation/active`, `vacation/days`, `vacation/hours`, `vacation/minTemp`, `vacation/maxTemp`, `vacation/minHumidity`, `vacation/maxHumidity`, `vacation/fanMode`
   * per-zone "bonus" sensors (not supported by the Climate integration): `damperPos`, `flowWeight`, `overrideDurationMins`
 * `homeassistant/button/infinitive/*/config`: discovery topics to create "buttons" as a convenience to manipulate vacation timing:
-  * "Vacation Cancel", "Vacation Add 1 Hour", "Vacation Subtract 1 Hour", "Vacation 1 Hour", and so on (total of 18 buttons)
+  * "HVAC Vacation Cancel", "HVAC Vacation Add 1 Hour", "HVAC Vacation Subtract 1 Hour", "HVAC Vacation 1 Hour", and so on (total of 18 buttons)
 * `homeassistant/climate/infinitive/*/config`: discovery topics, one per zone, for an MQTT HVAC climate entity, which includes:
   * Zone name, temperature unit and increment, and enumerations of the modes, fan modes, and preset modes
   * MQTT topic names for receiving current mode, action, fan mode, preset mode, temperature, humnidity, and setpoints
@@ -415,19 +422,19 @@ HomeAssistant MQTT Discovery topics published:
   * MQTT "availability" topic name which causes the climate entity to track as Unavailable when infinitive is not running or not able to reach the MQTT broker
 
 If the MQTT integration and MQTT Discovery are enabled in your Home Assistant instance, a dozen or more sensors, 18 buttons, and one
-HVAC climate entity per zone, will be created.  The discovery messages are sent once each time Infinitive starts up, so restart it if you need
+MQTT climate entity per zone, will be created.  The discovery messages are sent once each time Infinitive starts up, so restart it if you need
 them to be re-sent, such as after clearing out retained messages.
 
 If your MQTT broker has accumulated retained discovery messages, you will need to delete those retained messages in order to cause
 Home Assistant to delete the unwanted entities.  There are various ways to do it but the most general approach is to publish new retained messages to the same discovery topic names with an empty message field.
 
-For example, if you use the `mosquitto` MQTT broker, you may use a command such as this to remove all of Infinitive's retained discovery messages:
+For example, if you use the `mosquitto` MQTT broker, you may use a command such as this to remove all of Infinitive's retained discovery messages, which will immediately cause Home Assistant to delete all the old dynamically-created entities, and new ones will be re-created on next Infinitive restart:
 
 ```
 mosquitto_sub -v -t homeassistant/+/infinitive/\# --remove-retained
 ```
 
-If you choose not to enable discovery, you can create your sensors and climate entities manually in the config file.  For example:
+If you choose not to enable discovery in Home Assistant, you can create your sensors and climate entities manually in the config file.  For example:
 
 ```
 # optional, if not using MQTT Discovery
@@ -488,6 +495,8 @@ Zone topics:
 * `infinitive/zone/X/fanMode/set`: set the fan mode setting, same options as above
 * `infinitive/zone/X/hold/set`: set the zone hold setting, same options as above
 * `infinitive/zone/X/preset/set`: set the zone "preset" setting, `hold` or `none`; `vacation` cannot be set here but setting `hold` will unset it
+
+Again remember that the "infinitive/" prefix on these subscribed names will be changed to the instance name if one is provided.  This allows multiple instances of Infinitive to coexist on one MQTT bus.
 
 ## Details
 #### ABCD bus
@@ -600,13 +609,21 @@ I believe Infinitive should work with Bryant Evolution systems as they use the s
 
 #### Notes About Multi-Zone Systems
 
-Multi-zone systems are supported in this version.  We have tested it on a 2-zone system but it should work at least up to 4 and most likely up to the
+Multi-zone systems are supported in this version.  We have tested it on a 2-zone system and others have gone up to 6 zones.  It should work up to the
 apparent 8-zone limit of the Infinity architecture.  Please get in touch if you have success or difficulty with a zoned system.
 
 The UI will automatically show all the zones, listed in order of their index number.  The REST and internal APIs can access a single zone's data at a tine, or all zones
 in one go; if your application wants all the zone data then it's more efficient to use the latter since the per-zone APIs will be slower owing to each
 one needing make redundant requests to the system.  The all-zones API is read-only; use the per-zone PUT method to make changes to a zone's configuration.
 The MQTT API has global and per-zone data as documented above.  The websocket API (used by the UI) is read-only and includes global data and all zones.
+
+There is some cleverness wired into infinitive which calculates per-zone airflow fractions when the fan is running.  Currently this calculation is based on empirical observations of the author's system, and is published only through MQTT.
+
+The airflow weighting calculation depends on the zone assessment (static pressure measurements)
+done periodically by the system, combined with the damper open percentages at the moment.  The author
+has been unable to find data emitted by the control to supply the static factors, so if you want the
+per-zone airflow to be calculated correctly, you'll need to determine these factors yourself, edit them into the
+code, and rebuild.  If you want to attempt this, open an issue for guidance and to discuss simplifying injecting the needed factors.
 
 #### Unimplemented features
 

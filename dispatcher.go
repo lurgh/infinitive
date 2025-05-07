@@ -1,12 +1,13 @@
 package main
 
 import (
-	"fmt"
-	"time"
-	"strings"
 	"encoding/json"
-	log "github.com/sirupsen/logrus"
+	"fmt"
+	"strings"
+	"time"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	log "github.com/sirupsen/logrus"
 )
 
 type EventListener struct {
@@ -205,15 +206,15 @@ func mqttOnConnect(cl mqtt.Client) {
 	a := instanceName + "/available"	// availability_topic
 
 	sensors := []discoveryTopicSensor {
-		{ "/outdoorTemp", "HVAC Outdoor Temperature", "temperature", "measurement", "°F", "hvac-sensors-odt", a },
-		{ "/humidity", "HVAC Indoor Humidity", "humidity", "measurement", "%", "hvac-sensors-hum", a},
-		{ "/rawMode", "HVAC Raw Mode", "", "measurement", "", "hvac-sensors-rawmode", a},
-		{ "/blowerRPM", "HVAC Blower RPM", "", "measurement", "RPM", "hvac-sensors-blowerrpm", a},
-		{ "/airflowCFM", "HVAC Airflow CFM", "", "measurement", "CFM", "hvac-sensors-aflo", a},
-		{ "/staticPressure", "HVAC Static Pressure", "distance", "measurement", "in", "hvac-sensors-ahsp", a},
-		{ "/coolStage", "HVAC Cool Stage", "", "measurement", "", "hvac-sensors-acstage", a},
-		{ "/heatStage", "HVAC Heat Stage", "", "measurement", "", "hvac-sensors-heatstage", a},
-		{ "/action", "HVAC Action", "enum", "", "", "hvac-sensors-actn", a},
+		{ "/outdoorTemp", "Outdoor Temperature", "temperature", "measurement", "°F", "hvac-sensors-odt", a },
+		{ "/humidity", "Indoor Humidity", "humidity", "measurement", "%", "hvac-sensors-hum", a},
+		{ "/rawMode", "Raw Mode", "", "measurement", "", "hvac-sensors-rawmode", a},
+		{ "/blowerRPM", "Blower RPM", "", "measurement", "RPM", "hvac-sensors-blowerrpm", a},
+		{ "/airflowCFM", "Airflow CFM", "", "measurement", "CFM", "hvac-sensors-aflo", a},
+		{ "/staticPressure", "Static Pressure", "distance", "measurement", "in", "hvac-sensors-ahsp", a},
+		{ "/coolStage", "Cool Stage", "", "measurement", "", "hvac-sensors-acstage", a},
+		{ "/heatStage", "Heat Stage", "", "measurement", "", "hvac-sensors-heatstage", a},
+		{ "/action", "Action", "enum", "", "", "hvac-sensors-actn", a},
 
 		{ "/vacation/active", "Vacation Mode Active", "enum", "", "", "hvac-sensors-vacay-active", a},  // maybe should be a binary_sensor
 		{ "/vacation/days", "Vacation Mode Days Remaining", "duration", "measurement", "d", "hvac-sensors-vacay-days", a},
@@ -226,12 +227,12 @@ func mqttOnConnect(cl mqtt.Client) {
 
 		// per-zone "bonus" sensors (outside of the Climate platform model)
 		// TODO: these should be parametrized, maybe do along with the Climate entities)
-		{ "/zone/1/damperPos", "HVAC Zone 1 Damper Postion", "", "measurement", "%", "hvac-sensors-z1-dpos", a},
-		{ "/zone/2/damperPos", "HVAC Zone 2 Damper Postion", "", "measurement", "%", "hvac-sensors-z2-dpos", a},
-		{ "/zone/1/flowWeight", "HVAC Zone 1 Airflow Weight", "", "measurement", "", "hvac-sensors-z1-fwgt", a},
-		{ "/zone/2/flowWeight", "HVAC Zone 2 Airflow Weight", "", "measurement", "", "hvac-sensors-z2-fwgt", a},
-		{ "/zone/1/overrideDurationMins", "HVAC Zone 1 Override Duration", "duration", "measurement", "min", "hvac-sensors-z1-odur", a},
-		{ "/zone/2/overrideDurationMins", "HVAC Zone 2 Override Duration", "duration", "measurement", "min", "hvac-sensors-z2-odur", a},
+		{ "/zone/1/damperPos", "Zone 1 Damper Postion", "", "measurement", "%", "hvac-sensors-z1-dpos", a},
+		{ "/zone/2/damperPos", "Zone 2 Damper Postion", "", "measurement", "%", "hvac-sensors-z2-dpos", a},
+		{ "/zone/1/flowWeight", "Zone 1 Airflow Weight", "", "measurement", "", "hvac-sensors-z1-fwgt", a},
+		{ "/zone/2/flowWeight", "Zone 2 Airflow Weight", "", "measurement", "", "hvac-sensors-z2-fwgt", a},
+		{ "/zone/1/overrideDurationMins", "Zone 1 Override Duration", "duration", "measurement", "min", "hvac-sensors-z1-odur", a},
+		{ "/zone/2/overrideDurationMins", "Zone 2 Override Duration", "duration", "measurement", "min", "hvac-sensors-z2-odur", a},
 	}
 
 	buttons := []discoveryTopicButton {
@@ -258,7 +259,12 @@ func mqttOnConnect(cl mqtt.Client) {
 	// write discovery topics for HA sensors
 	for _, v := range sensors {
 		v.Topic = instanceName + v.Topic
-		if instanceName != "infinitive" { v.Unique_id = instanceName + "-" + v.Unique_id }
+		if instanceName != "infinitive" {
+			v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
+			v.Unique_id =  instanceName + "-" + v.Unique_id
+		} else {
+			v.Name = "HVAC " + v.Name
+		}
 		j, err := json.Marshal(&v)
 		log.Infof("MQTT PUB %v: %s", err, j)
 		if err == nil {
@@ -269,7 +275,12 @@ func mqttOnConnect(cl mqtt.Client) {
 	// write discovery topics for HA buttons
 	for _, v := range buttons {
 		v.Topic = instanceName + v.Topic
-		if instanceName != "infinitive" { v.Unique_id = instanceName + "-" + v.Unique_id }
+		if instanceName != "infinitive" {
+			v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
+			v.Unique_id = instanceName + "-" + v.Unique_id
+		} else {
+			v.Name = "HVAC " + v.Name
+		}
 		j, err := json.Marshal(&v)
 		log.Infof("MQTT PUB %v: %s", err, j)
 		if err == nil {
@@ -318,9 +329,18 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 
 	tempu := "F"
 	if tu > 0 { tempu = "C" }
-	dmsg := fmt.Sprintf(climateTemplate, zn, zi+1, tempu, instanceName)
 	duid := fmt.Sprintf("climate-zone-%d", zi+1)
-	if instanceName != "infinitive" { duid = instanceName + "-" + duid }
+	if instanceName != "infinitive" {
+		duid = instanceName + "-" + duid
+		if zn == "ZONE 1" {
+			zn = strings.Replace(instanceName, "_", " ", -1)
+		}
+	} else {
+		if zn == "ZONE 1" {
+			zn = "HVAC"
+		}
+	}
+	dmsg := fmt.Sprintf(climateTemplate, zn, zi+1, tempu, instanceName)
 	log.Info("MQTT ZONE DISC: ", dmsg)
 	_ = mqttClient.Publish("homeassistant/climate/infinitive/" + duid + "/config", 0, true, dmsg)
 
