@@ -224,15 +224,6 @@ func mqttOnConnect(cl mqtt.Client) {
 		{ "/vacation/minHumidity", "Vacation Mode Minimum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-minh", a},
 		{ "/vacation/maxHumidity", "Vacation Mode Maximum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-maxh", a},
 		{ "/vacation/fanMode", "Vacation Mode Fan Mode", "enum", "", "", "hvac-sensors-vacay-fm", a},
-
-		// per-zone "bonus" sensors (outside of the Climate platform model)
-		// TODO: these should be parametrized, maybe do along with the Climate entities)
-		{ "/zone/1/damperPos", "Zone 1 Damper Postion", "", "measurement", "%", "hvac-sensors-z1-dpos", a},
-		{ "/zone/2/damperPos", "Zone 2 Damper Postion", "", "measurement", "%", "hvac-sensors-z2-dpos", a},
-		{ "/zone/1/flowWeight", "Zone 1 Airflow Weight", "", "measurement", "", "hvac-sensors-z1-fwgt", a},
-		{ "/zone/2/flowWeight", "Zone 2 Airflow Weight", "", "measurement", "", "hvac-sensors-z2-fwgt", a},
-		{ "/zone/1/overrideDurationMins", "Zone 1 Override Duration", "duration", "measurement", "min", "hvac-sensors-z1-odur", a},
-		{ "/zone/2/overrideDurationMins", "Zone 2 Override Duration", "duration", "measurement", "min", "hvac-sensors-z2-odur", a},
 	}
 
 	buttons := []discoveryTopicButton {
@@ -327,6 +318,14 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 	"unique_id": "%[4]s-hvac-zone-%[2]d-ad"
 }`
 
+	a := instanceName + "/available"	// availability_topic
+
+	// per-zone "bonus" sensors (outside of the Climate platform model)
+	sensors := []discoveryTopicSensor {
+		{ "%[4]s/zone/%[2]d/damperPos", "%[1]s Damper Postion", "", "measurement", "%", "hvac-sensors-z%[2]d-dpos", a},
+		{ "%[4]s/zone/%[2]d/flowWeight", "%[1]s Airflow Weight", "", "measurement", "", "hvac-sensors-z%[2]d-fwgt", a},
+		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[1]s Override Duration", "duration", "measurement", "min", "hvac-sensors-z%[2]d-odur", a},
+	}
 	tempu := "F"
 	if tu > 0 { tempu = "C" }
 	duid := fmt.Sprintf("climate-zone-%d", zi+1)
@@ -341,8 +340,25 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 		}
 	}
 	dmsg := fmt.Sprintf(climateTemplate, zn, zi+1, tempu, instanceName)
-	log.Info("MQTT ZONE DISC: ", dmsg)
+	log.Info("MQTT ZONE CLIMATE DISC: ", dmsg)
 	_ = mqttClient.Publish("homeassistant/climate/infinitive/" + duid + "/config", 0, true, dmsg)
+
+	// write discovery topics for per-zone sensors
+	for _, v := range sensors {
+		v.Topic = fmt.Sprintf(v.Topic, zn, zi+1, tempu, instanceName)
+		v.Name = fmt.Sprintf(v.Name, zn, zi+1, tempu, instanceName)
+		v.Unique_id = fmt.Sprintf(v.Unique_id, zn, zi+1, tempu, instanceName)
+		
+		if instanceName != "infinitive" {
+			v.Unique_id =  instanceName + "-" + v.Unique_id
+		}
+
+		j, err := json.Marshal(&v)
+		log.Infof("MQTT ZONE SENSOR DISC: %v", j)
+		if err == nil {
+			_ = mqttClient.Publish("homeassistant/sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+		}
+	}
 
 	mqttZoneFlags[zi] = true
 }
