@@ -2,13 +2,13 @@ package main
 
 import (
 	"bytes"
-	"strings"
 	"encoding/binary"
+	"encoding/hex"
 	"flag"
 	"fmt"
-	"encoding/hex"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -674,7 +674,7 @@ func main() {
 	flag.Parse()
 
 	// validate the instance name
-	if instance == nil || len(*instance) == 0 || len(*instance) > 32 || strings.ContainsAny(*instance, "$#+*/") {
+	if instance == nil || len(*instance) == 0 || len(*instance) > 32 || strings.ContainsAny(*instance, " $#+*/") {
 		fmt.Print("invalid instance name")
 		flag.PrintDefaults()
 		os.Exit(1)
