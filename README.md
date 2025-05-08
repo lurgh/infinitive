@@ -32,8 +32,8 @@ This README has been updated with some info about this fork but more needs to be
 We have recently changed the names of some of the entities created by MQTT Discovery to be more consistent and more friendly for
 multi-zone and multi-instance installations.  In particular:
 
-  * `Vacation Mode ...` sensors and buttons have changed to `HVAC Vacation Mode ...`, so their entity IDs changed from `vacation_mode_\*` to `hvac_vacation_mode_\*`
-  * All entities that start with "HVAC" will change to the instance name, with spaces substituted instead of underscores, if the instance name is set.  So for example, if instance name is `Upstairs_AC` then sensors will be named for example `Upstairs AC Vacation Mode ...` with entity IDs like `upstairs_ac_vacation_mode_\*`
+  * `Vacation Mode ...` sensors and buttons have changed to `HVAC Vacation Mode ...`, so their entity IDs changed from `vacation_mode_*` to `hvac_vacation_mode_*`
+  * All entities that start with "HVAC" will change to the instance name, with spaces substituted instead of underscores, if the instance name is set.  So for example, if instance name is `Upstairs_AC` then sensors will be named for example `Upstairs AC Vacation Mode ...` with entity IDs like `upstairs_ac_vacation_mode_*`
   * Climate entities on a zoned system will still be named for each zone; however on a non-zoned system they will now be named for the instance name (underscores translated as above) or, if not set, "HVAC".
   * Per-zone "bonus sensors" are now named the same as the climate entities they relate to; for example, the sensor that used to be named `Zone 1 Damper Position` will now be `Downstairs Damper Position`, or `Upstairs AC Damper Position` or `HVAC Damper Position`, matching the corresponding climate entities.
 
