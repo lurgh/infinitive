@@ -21,6 +21,7 @@ Active development and testing are still under way.  In particular we still need
   * Auto-detect the zone airflow weighting or allow it to be set on the command line (currently hard-coded to the author's system)
   * MQTT: maybe support a read-only option
   * MQTT: add controls to change per-zone overrideDuration
+  * HA sensors (other than the Climate entities) created by MQTT Discovery are hardwired to units of °F, but should adapt to the system's temp units
   * Consider changing MQTT discovery to be device-based rather than just unconnected entities
   * Consider moving the per-zone "bonus" sensors into a single JSON attributes object compatible with MQTT Climate integration
 
@@ -31,10 +32,10 @@ This README has been updated with some info about this fork but more needs to be
 We have recently changed the names of some of the entities created by MQTT Discovery to be more consistent and more friendly for
 multi-zone and multi-instance installations.  In particular:
 
-  * "Vacation Mode ..." sensor and buttons have changed to "HVAC Vacation Mode ...", so their entity IDs changed from "vacation_mode_*" to "hvac_vacation_mode_*"
-  * All entities that start with "HVAC" will change to the instance name, with spaces substituted instead of underscores, if the instance name is set.  So for example, if instance name is "Upstairs_AC" then sensors will be named for example "Upstairs AC Vacation Mode ..." with entity IDslike "upstairs_ac_vacation_mode_*"
+  * `Vacation Mode ...` sensors and buttons have changed to `HVAC Vacation Mode ...`, so their entity IDs changed from `vacation_mode_\*` to `hvac_vacation_mode_\*`
+  * All entities that start with "HVAC" will change to the instance name, with spaces substituted instead of underscores, if the instance name is set.  So for example, if instance name is `Upstairs_AC` then sensors will be named for example `Upstairs AC Vacation Mode ...` with entity IDs like `upstairs_ac_vacation_mode_\*`
   * Climate entities on a zoned system will still be named for each zone; however on a non-zoned system they will now be named for the instance name (underscores translated as above) or, if not set, "HVAC".
-  * Per-zone "bonus sensors" are now named the same as the climate entities they relate to; for example, the sensor that used to be named "Zone 1 Damper Position" will now be "Downstairs Damper Position", or "Upstairs AC Damper Position" or "HVAC Damper Position", matching the climate entities.
+  * Per-zone "bonus sensors" are now named the same as the climate entities they relate to; for example, the sensor that used to be named `Zone 1 Damper Position` will now be `Downstairs Damper Position`, or `Upstairs AC Damper Position` or `HVAC Damper Position`, matching the corresponding climate entities.
 
 # infinitive
 Infinitive impersonates a SAM on a Carrier Infinity system management bus. 
