@@ -18,7 +18,7 @@ or just not configured if you don't want to use it.
 
 Active development and testing are still under way.  In particular we still need to look into the following:
   * Still hoping to figure out how Dehumidify action is represented so we can reflect it in the UI/API - may need to resort to heuristics
-  * Auto-detect the zone airflow weighting or allow it to be set on the command line (currently hard-coded to the author's system)
+  * Auto-detect the zone airflow weighting (please let me know if you find a way!)
   * MQTT: maybe support a read-only option
   * MQTT: add controls to change per-zone overrideDuration
   * HA sensors (other than the Climate entities) created by MQTT Discovery are hardwired to units of °F, but should adapt to the system's temp units
@@ -129,6 +129,22 @@ password and username are optional, as needed by your MQTT broker.  Password is 
 not to be visible in "ps" etc.
 
 See below for MQTT schema and more notes about using it.
+
+  * Set the duct capacities of a multi-zone system
+```
+$ infinitive ... -ductCap=DL,Z1,Z2,...,Zn
+```
+This option sets the duct capacity ratings which will be used for airflow weighting calculations.  This is optional and only
+needed on a multi-zone system, and when you care about the accuracy of the flowWeight values reported per zone.  If it is not
+supplied, Infinitive will assume equal capacities so the per-zone flowWeight reports will probably not match the
+per-zone airflows shown on the controller.
+
+The capacities are integer percentages and must add up to 100.
+DL is the DUCT LEAKAGE percent, and Z1, Z2, etc are the per-zone capacity percentages, all as shown on your system controller.
+You need not specify capacities for zones that don't exist on your system.  For example a valid argument would look like
+`-ductCap=12,56,32`, meaning 12% leakage, 56% zone 1 capacity, and 32% zone 2 capacity.
+
+Refer to the section below on **Airflow Weights Per Zone** for how to obtain these values from your controller.
 
   * Set a different instance name (useful when you need to run multiple instances of infinitive that will publish to the same MQTT broker)
 ```
@@ -627,18 +643,49 @@ I believe Infinitive should work with Bryant Evolution systems as they use the s
 Multi-zone systems are supported in this version.  We have tested it on a 2-zone system and others have gone up to 6 zones.  It should work up to the
 apparent 8-zone limit of the Infinity architecture.  Please get in touch if you have success or difficulty with a zoned system.
 
-The UI will automatically show all the zones, listed in order of their index number.  The REST and internal APIs can access a single zone's data at a tine, or all zones
+The UI will automatically show all the zones, listed in order of their index number.  The REST and internal APIs can access a single zone's data at a time, or all zones
 in one go; if your application wants all the zone data then it's more efficient to use the latter since the per-zone APIs will be slower owing to each
 one needing make redundant requests to the system.  The all-zones API is read-only; use the per-zone PUT method to make changes to a zone's configuration.
 The MQTT API has global and per-zone data as documented above.  The websocket API (used by the UI) is read-only and includes global data and all zones.
 
-There is some cleverness wired into infinitive which calculates per-zone airflow fractions when the fan is running.  Currently this calculation is based on empirical observations of the author's system, and is published only through MQTT.
+There is some cleverness wired into infinitive which calculates per-zone airflow fractions when the fan is running.  Currently this is published only through the MQTT API.
+
+##### Airflow Weights Per Zone
+
+Infinitive can calculate the airflow going to each zone based on the zone damper states, but to do so
+accurately requires the duct assessment data from the controller which characterizes the airflow capacity of each
+zone's ducting.  With that data, Infinitive will show the same per-zone airflow that the controller shows; without it,
+Infinitive assumes all zones have equal capacity so will likely not match what the controller reports.
 
 The airflow weighting calculation depends on the zone assessment (static pressure measurements)
 done periodically by the system, combined with the damper open percentages at the moment.  The author
 has been unable to find data emitted by the control to supply the static factors, so if you want the
-per-zone airflow to be calculated correctly, you'll need to determine these factors yourself, edit them into the
-code, and rebuild.  If you want to attempt this, open an issue for guidance and to discuss simplifying injecting the needed factors.
+per-zone airflow to be calculated correctly, you'll need to obtain these factors from your controller, and pass them
+on the command line using the `-ductCap` option.  Here is how to do it:
+
+* Open the `INSALL/SERVICE` menu on your controller by holding the Advanced (settings) button for 10 seconds
+* Move the highlight to `CHECKOUT` and press `SELECT`
+* Move the highlight to `ZONING` and press `SELECT`
+* Move the highlight to `DUCT ASSESSMENT` and press `SELECT`
+
+You will see a table of `ZONE`, `CAPACITY` (percent), and a final `DAMPER LEAKAGE` value.  Note these values.  Be aware that they can change over time since
+the Duct Assessment is run daily and at each power-up, but it is not likely to change much unless your ductwork is modified or system settings are
+changed.
+
+Now craft a `-ductCap` argument by arranging the values in a list: first the leakage percent, then the zone percents in zone-number order from 1 to up to 8.
+For example, the author's 2-zone system shows
+| zone           | capacity |
+| -------------- | -------- |
+| Downstairs     | 56%      |
+| Upstairs       | 32%      |
+| DAMPER LEAKAGE | 12%      |
+So the arg will be `-ductCap=12,56,32`
+
+Note: we only have seen a small sample size but it looks like the system actually holds greater than integer precision for these values; comparing
+the calculated airflow values to what is
+displayed on the system UI, it seems that the author's system's duct capacity numbers are closer to 55.5 and 32.5, so the calculated zone airflow is
+a few cfm off from what the system reports, while at one time we were spot-on with integers.  We will live with this for now.  Still hoping we will
+find a way to get these numbers (in full precision) from the bus but not holding our breath.
 
 #### Unimplemented features
 
