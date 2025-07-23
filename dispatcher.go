@@ -207,6 +207,8 @@ func mqttOnConnect(cl mqtt.Client) {
 
 	sensors := []discoveryTopicSensor {
 		{ "/outdoorTemp", "Outdoor Temperature", "temperature", "measurement", "°F", "hvac-sensors-odt", a },
+		{ "/coilTemp", "Outdoor Coil Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-oct", a },
+		{ "/outsideTemp", "Outdoor Air Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-oat", a },
 		{ "/humidity", "Indoor Humidity", "humidity", "measurement", "%", "hvac-sensors-hum", a},
 		{ "/rawMode", "Raw Mode", "", "measurement", "", "hvac-sensors-rawmode", a},
 		{ "/blowerRPM", "Blower RPM", "", "measurement", "RPM", "hvac-sensors-blowerrpm", a},
