@@ -521,6 +521,7 @@ The protocol has been reverse engineered as Carrier has not published a protocol
 
 * [Cocoontech's Carrier Infinity Thread](http://cocoontech.com/forums/topic/11372-carrier-infinity/)
 * [Infinitude Wiki](https://github.com/nebulous/infinitude/wiki/Infinity-Protocol-Main)
+* [Carrier's SAM documentation](https://www.shareddocs.com/hvac/docs/1009/Public/09/SAM01-04XA.pdf), latest version from 2021 also describes Touch systems
 
 Infinitive reads and writes information from the Infinity thermostat.  It also gathers data by passively observing traffic exchanged between the thermostat and other system components.
 
