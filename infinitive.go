@@ -694,6 +694,7 @@ func main() {
 	httpPort := flag.Int("httpport", 8080, "HTTP port to listen on")
 	serialPort := flag.String("serial", "", "path to serial port")
 	mqttBrokerUrl := flag.String("mqtt", "", "url for mqtt broker")
+	ductCap := flag.String("ductCap", "12,11,11,11,11,11,11,11,11", "duct capacities as comma-separated values for leakage,z1,...,zN")
 	instance := flag.String("instance", "infinitive", "unique system instance name")
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
 	doDebugLog := flag.Bool("debug", false, "enable debug log level")
@@ -739,17 +740,52 @@ func main() {
 	wsCache.update("damperpos", damperPos)
 
 	// init zone airflow weights (doesn't seem to be pollable so need to configure these)
-	zoneRelPct := [8]float32{55, 33}
-	zoneLeakagePct := float32(12)
+	//  the system provides a zone leakage % as well as % capacity for each zone, which add to 100%
+	//  refer to Advanced(hold)->Checkout->Zoning->DuctAssessment
+	// from this we calculate per-zone relative weights which add to 1, and are used to calculate
+	// per-zone airflow weights given the damper reports later on
+	zoneRelPct := [8]float32{0}
+	zoneLeakagePct := float32(0)
+	zoneTotalPct := float32(0)
+
+	for i, v := range strings.Split(*ductCap, ",") {
+		nv, nerr := strconv.Atoi(v)
+		if nerr != nil || nv < 0 || nv > 100 {
+			fmt.Println("Invalid ductCap percentage ", v)
+			os.Exit(1)
+		}
+		zoneTotalPct += float32(nv)
+		if i == 0 {
+			zoneLeakagePct = float32(nv)
+		} else if i <= 8 {
+			zoneRelPct[i-1] = float32(nv)
+		} else {
+			fmt.Println("Too many values given in ductCap")
+			os.Exit(1)
+		}
+	}
+
+	if zoneTotalPct != 100 {
+		fmt.Println("ductCap percentages must total 100%")
+		os.Exit(1)
+	}
 
 	// calculate zone weights, will total 100
 	zoneTotalRelPct := float32(0)
 	for _, v := range zoneRelPct {
 		zoneTotalRelPct += v
 	}
+
+	if zoneTotalRelPct == float32(0) {
+		fmt.Println("At least one zone must have a nonzero ductCap percentage")
+		os.Exit(1)
+	}
+
 	for i, v := range zoneRelPct {
 		zoneWeight[i] = (zoneLeakagePct * (v / zoneTotalRelPct) + zoneRelPct[i])/100
 	}
+
+	log.Infoln("ductCap zone Weights:", zoneWeight)
 
 	rawMonTable := []uint16{
 		// 0x3c01, 0x3c03, 0x3c0a, 0x3c0b, 0x3c0c, 0x3c0d, 0x3c0e, 0x3c0f, 0x3c14, 0x3d02, 0x3d03, 
