@@ -421,6 +421,9 @@ Experimental, may change or disappear over time:
 * `infinitive/coilTemp`: coil temp reported by outdoor unit, in 0.125-degree resolution
 * `infinitive/outsideTemp`: outside temp reported by outdoor unit, in 0.125-degree resolution
 * `infinitive/elecHeat`: bool flag indicating HP air handler is operating on electric heat
+* `infinitive/dispZone`: zone number currently displayed on the tstat
+* `infinitive/dispDOW`: numeric value of the day of week as displayed on the tstat, 0=Sunday
+* `infinitive/dispTimeDiff`: number of minutes skew between the tstat time and the host system time (-720 - +719)
 
 Reported per zone, where X is a zone number 1-8:
 * `infinitive/zone/X/currentTemp`: current temperature as reported by thermostat, in whole degrees
@@ -519,6 +522,9 @@ Global topics:
 * `infinitive/mode/set`: Set the main operating mode (same options as above)
 * `infinitive/vacation/hours/set`: set Vacation mode time in hours; set to 0 to cancel, or prefix with '+' or '-' for relative settings
 * `infinitive/vacation/days/set`: set Vacation mode time in days; set to 0 to cancel, or prefix with '+' or '-' for relative settings
+
+Experimental topics:
+* `infinitive/dispZone/set`: set the system to display a particular zone (where zone number is 1-8 and presumably must exist)
 
 Zone topics:
 * `infinitive/zone/X/coolSetpoint/set`: set the cool set point, as above
