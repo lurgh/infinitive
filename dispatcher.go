@@ -217,6 +217,9 @@ func mqttOnConnect(cl mqtt.Client) {
 		{ "/coolStage", "Cool Stage", "", "measurement", "", "hvac-sensors-acstage", a},
 		{ "/heatStage", "Heat Stage", "", "measurement", "", "hvac-sensors-heatstage", a},
 		{ "/action", "Action", "enum", "", "", "hvac-sensors-actn", a},
+		{ "/dispZone", "Current Zone on Display", "", "measurement", "", "hvac-sensors-zdisp", a},
+		{ "/dispDOW", "Current system Day of Week", "", "measurement", "", "hvac-sensors-dow", a},
+		{ "/dispTimeDiff", "Current system time skew", "", "measurement", "", "hvac-sensors-tskew", a},
 
 		{ "/vacation/active", "Vacation Mode Active", "enum", "", "", "hvac-sensors-vacay-active", a},  // maybe should be a binary_sensor
 		{ "/vacation/days", "Vacation Mode Days Remaining", "duration", "measurement", "d", "hvac-sensors-vacay-days", a},
@@ -229,6 +232,8 @@ func mqttOnConnect(cl mqtt.Client) {
 	}
 
 	buttons := []discoveryTopicButton {
+		{ "/dispZone/set", "Display Zone 1", "1", 0, false, "hvac-zdisp-1", a},
+		{ "/dispZone/set", "Display Zone 2", "2", 0, false, "hvac-zdisp-2", a},
 		{ "/vacation/hours/set", "Vacation Cancel", "0", 0, false, "hvac-vac-can", a},
 		{ "/vacation/hours/set", "Vacation Add 1 Hour", "+1", 0, false, "hvac-vac-plus1", a},
 		{ "/vacation/hours/set", "Vacation Subtract 1 Hour", "-1", 0, false, "hvac-vac-minus1", a},
