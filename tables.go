@@ -11,9 +11,12 @@ type TStatCurrentParams struct {
 	Unknown1          uint8
 	OutdoorAirTemp    uint8
 	ZoneUnocc         uint8 // bitflags
-	Mode              uint8
-	Unknown2          [5]uint8
-	DisplayedZone     uint8
+	Mode              uint8 // flag x10
+	DispSchedPeriod   uint8
+	Unknown2          uint8
+	DispDOW           uint8 // flag 0x80
+	DispTimeMin       uint16 // flag 0x100 (untested)
+	DispZone          uint8 // flag 0x200
 }
 
 func (params TStatCurrentParams) addr() InfinityTableAddr {
@@ -94,8 +97,8 @@ func (params TStatVacationParams) toAPI() APIVacationConfig {
 	return api
 }
 
-func (params *TStatVacationParams) fromAPI(config *APIVacationConfig) byte {
-	flags := byte(0)
+func (params *TStatVacationParams) fromAPI(config *APIVacationConfig) uint16 {
+	flags := uint16(0)
 
 	if config.Active != nil {
 		params.Active = 0

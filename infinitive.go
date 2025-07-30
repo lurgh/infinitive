@@ -42,6 +42,9 @@ type TStatZonesConfig struct {
 	Stage             uint8  `json:"stage"`
 	Action            string `json:"action"`
 	RawMode           uint8  `json:"rawMode"`
+	DispDOW		  uint8  `json:"dispDOW"`
+	DispTime          uint16 `json:"dispTime"`
+	DispZone          uint8  `json:"dispZone"`
 }
 
 type AirHandler struct {
@@ -132,6 +135,9 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 		Stage:             params.Mode >> 5,
 		Action:            rawActionToString(params.Mode >> 5),
 		RawMode:           params.Mode,
+		DispDOW:           params.DispDOW,
+		DispTime:          params.DispTimeMin,
+		DispZone:          params.DispZone,
 	}
 
 	zoneArr := [8]TStatZoneConfig{}
@@ -179,7 +185,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 // returns ok == true
 func putConfig(zone string, param string, value string) bool {
 	params := TStatZoneParams{}
-	flags := byte(0)
+	flags := uint16(0)
 
 	zn, err := strconv.Atoi(zone)
 	if err != nil {
@@ -265,6 +271,15 @@ func putConfig(zone string, param string, value string) bool {
 			} else {
 				p := TStatCurrentParams{Mode: mode}
 				infinity.WriteTable(devTSTAT, p, 0x10)
+				return true
+			}
+		case "dispZone":
+			if val, err := strconv.ParseUint(value, 10, 8); err != nil || val < 1 || val > 2 {
+				log.Errorf("putConfig: invalid dispZone value '%s'", value)
+				return false
+			} else {
+				p := TStatCurrentParams{DispZone: uint8(val)}
+				infinity.WriteTable(devTSTAT, p, 0x200)
 				return true
 			}
 		default:
@@ -476,6 +491,18 @@ func statePoller(monArray []uint16) {
 			mqttCache.update(pf+"/mode", c1.Mode)
 			// mqttCache.update(pf+"/action", c1.Action) // replaced by action set from snoop messages
 			mqttCache.update(pf+"/rawMode", c1.RawMode)
+			mqttCache.update(pf+"/dispZone", c1.DispZone)
+			mqttCache.update(pf+"/dispDOW", c1.DispDOW)
+			// calculate time skew
+			tnow := time.Now()
+			tsys := tnow.Hour() * 60 + tnow.Minute()
+			tdiff := int16(c1.DispTime) - int16(tsys)
+			if tdiff > 720 {
+				tdiff = tdiff - 1440
+			} else if tdiff < -720 {
+				tdiff = tdiff + 1440
+			}
+			mqttCache.update(pf+"/dispTimeDiff", tdiff)
 		}
 
 		if c2ok {

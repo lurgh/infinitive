@@ -309,18 +309,17 @@ func (p *InfinityProtocol) Write(dst uint16, table []byte, addr []byte, params i
 	return p.send(dst, opWRITE, buf.Bytes(), nil)
 }
 
-func (p *InfinityProtocol) WriteTable(dst uint16, table InfinityTable, flags uint8) bool {
+// Update a non-zoned table
+func (p *InfinityProtocol) WriteTable(dst uint16, table InfinityTable, flags uint16) bool {
 	addr := table.addr()
-	fl := []byte{0x00, 0x00, flags}
+	fl := []byte{0x00, uint8(flags >> 8), uint8(flags)}
 	return p.Write(dst, addr[:], fl, table)
 }
 
 // Update a table, specifying the zone index number (0 = Zone 1, 1 = Zone 2, etc).
-func (p *InfinityProtocol) WriteTableZ(dst uint16, table InfinityTable, zflag uint8, flags uint8) bool {
+func (p *InfinityProtocol) WriteTableZ(dst uint16, table InfinityTable, zflag uint8, flags uint16) bool {
 	addr := table.addr()
-	fl := []byte{zflag, 0x00, flags} // not changing it now but experiments show that 2nd and 3rd bytes
-					// of fl are actually together a 16-bit flag set, which you'd need
-					// if you wanted to update the ninth or higher field in the table
+	fl := []byte{zflag, uint8(flags >> 8), uint8(flags)}
 	return p.Write(dst, addr[:], fl, table)
 }
 

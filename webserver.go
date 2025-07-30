@@ -114,7 +114,7 @@ func webserver(port int) {
 			log.Printf("invalid zone numner")
 		} else {
 			params := TStatZoneParams{}
-			flags := byte(0)
+			flags := uint16(0)
 			zi := zn - 1
 
 			if len(args.FanMode) > 0 {
