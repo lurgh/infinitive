@@ -551,6 +551,14 @@ Infinitive reads and writes information from the Infinity thermostat.  It also g
 
 By adding the -rlog command line option, you can request infinitive to log every request and response seen on the serial bus into a log file, for offline analysis.  We have some primitive tools for analyzing this data which we may add to the repo at some point.  It has been very helpful for finding some more tricks in the protocol.
 
+#### Changing global parameters
+
+We observed that changing global parameters including operating mode (heat/cool/auto/off), as well as some experimental and future ones
+that are set via the same bus register (displayed zone, day of week, unoccupied zones), has a side effect of setting back the
+system clock by up to one minute.  This was discovered when automating changes to the operating mode multiple times per day, and the
+thermostat would lose a couple minutes more each day.  A fix has been added, to reset the time to the infinitive system time any
+time those parameters are set.  All the more reason to keep your system clock set correctly!
+
 #### Protocol Notes
 Building on the work documented above, a numer of additional details about the protocol have been discovered.  These notes are
 based on observations of the protocol exchanges on a 2-zone system with 2-stage gas furnace, 2-stage AC compressor, and media filter.

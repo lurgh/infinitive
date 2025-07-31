@@ -263,29 +263,40 @@ func putConfig(zone string, param string, value string) bool {
 
 		return true
 	} else if zn == 0 {
+		p := TStatCurrentParams{}
+
 		switch param {
 		case "mode":
 			if mode, ok := stringModeToRaw(value); !ok {
 				log.Errorf("putConfig: invalid mode value '%s'", value)
 				return false
 			} else {
-				p := TStatCurrentParams{Mode: mode}
-				infinity.WriteTable(devTSTAT, p, 0x10)
-				return true
+				p.Mode = mode
+				flags = 0x10
 			}
 		case "dispZone":
 			if val, err := strconv.ParseUint(value, 10, 8); err != nil || val < 1 || val > 2 {
 				log.Errorf("putConfig: invalid dispZone value '%s'", value)
 				return false
 			} else {
-				p := TStatCurrentParams{DispZone: uint8(val)}
-				infinity.WriteTable(devTSTAT, p, 0x200)
-				return true
+				p.DispZone = uint8(val)
+				flags = 0x200
 			}
 		default:
 			log.Errorf("putConfig: invalid parameter name '%s'", param)
 			return false
 		}
+
+		// setting these parameters can make our thermostat lose up to 1 min of time keeping
+		// so we include a time/day setting with every command
+		tnow := time.Now()
+		p.DispDOW = uint8(tnow.Weekday())
+		p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
+		flags = flags | 0x180
+
+		infinity.WriteTable(devTSTAT, p, flags)
+
+		return true
 	}
 
 	log.Errorf("putConfig: invalid zone number %d", zn)
