@@ -165,3 +165,38 @@ type TStatSettings struct {
 func (params TStatSettings) addr() InfinityTableAddr {
 	return InfinityTableAddr{0x00, 0x3B, 0x06}
 }
+
+
+type TStatTemps struct {
+	Zones [8]struct {
+		Unknown  [2]uint8
+		Temp16   [2]uint8
+		Temp8    uint8
+	}
+}
+
+type APITStatTemps struct {
+	Zones [8]struct {
+		Unknown  uint16
+		Temp16   float32
+		Temp     uint8
+	}
+}
+
+func (params TStatTemps) addr() InfinityTableAddr {
+	return InfinityTableAddr{0x00, 0x3D, 0x02}
+}
+
+func (params *TStatTemps) toAPI() *APITStatTemps {
+	to := APITStatTemps{}
+
+	for i, _ := range to.Zones {
+		to.Zones[i].Unknown = uint16(params.Zones[i].Unknown[0]) << 8 + uint16(params.Zones[i].Unknown[1])
+		to.Zones[i].Temp16 = float32(params.Zones[i].Temp16[0]) * 16 + float32(params.Zones[i].Temp16[1]) / 16
+		to.Zones[i].Temp = params.Zones[i].Temp8
+	}
+
+	return &to
+}
+
+

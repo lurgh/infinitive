@@ -285,15 +285,24 @@ func (p *InfinityProtocol) send(dst uint16, op uint8, requestData []byte, respon
 
 	if ok && op == opREAD && act.responseFrame != nil && act.responseFrame.data != nil && len(act.responseFrame.data) > 6 {
 		raw, ok := response.(InfinityProtocolRawRequest)
+		reginfosz := 6
+		if act.responseFrame.data[1] == 0x3d {
+			// register 3dXX seemingly has a 4-byte reg header not 6
+			reginfosz = 4
+		}
 		if ok {
 			// log.Printf(">>>> handling a RawRequest")
-			*raw.data = append(*raw.data, act.responseFrame.data[6:]...)
+			*raw.data = append(*raw.data, act.responseFrame.data[reginfosz:]...)
 			// log.Printf("raw data length is: %d", len(*raw.data))
 		} else {
-			r := bytes.NewReader(act.responseFrame.data[6:])
-			binary.Read(r, binary.BigEndian, response)
+			// log.Printf("%+v", act.responseFrame.data)
+			r := bytes.NewReader(act.responseFrame.data[reginfosz:])
+			e := binary.Read(r, binary.BigEndian, response)
+			if e != nil {
+				log.Errorf("p.send Read failed from %d bytes: %v", len(act.responseFrame.data[reginfosz:]), e)
+			}
+			// log.Printf("YAH %+v", response)
 		}
-		// log.Printf("%+v", data)
 	}
 
 	return ok
