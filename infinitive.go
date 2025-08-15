@@ -288,8 +288,9 @@ func putConfig(zone string, param string, value string) bool {
 		}
 
 		// setting these parameters can make our thermostat lose up to 1 min of time keeping
-		// so we include a time/day setting with every command
-		tnow := time.Now()
+		// so we include a time/day setting with every command; adding 30s helps in rounding to
+		// the nearest minute given truncation to one-minute resolution
+		tnow := time.Now().Add(time.Second * 30)
 		p.DispDOW = uint8(tnow.Weekday())
 		p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
 		flags = flags | 0x180
