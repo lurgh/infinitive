@@ -427,6 +427,16 @@ func getTstatSettings() (*TStatSettings, bool) {
 	}, true
 }
 
+func getTstatTemps() (*APITStatTemps, bool) {
+	tst := TStatTemps{}
+	ok := infinity.ReadTable(devTSTAT, &tst)
+	if !ok {
+		return nil, false
+	}
+
+	return tst.toAPI(), true
+}
+
 func getRawData(dev uint16, tbl []byte) {
 	var addr InfinityTableAddr
 	copy(addr[:], tbl[0:3])
@@ -470,14 +480,16 @@ func getDamperPosition() (DamperPosition, bool) {
 
 func statePoller(monArray []uint16) {
 	mon_i := 0
+	cyc_i := 0
 	for {
 		// called once for all zones
 		c1, c1ok := getZonesConfig()
 		c2, c2ok := getVacationConfig()
 
+		pf := fmt.Sprintf("mqtt/%s", instanceName)
+
 		if c1ok {
 			wsCache.update("tstat", c1)
-			pf := fmt.Sprintf("mqtt/%s", instanceName)
 			var hum uint8
 			for zi := range c1.Zones {
 				zp := fmt.Sprintf("%s/zone/%d", pf, c1.Zones[zi].ZoneNumber)
@@ -519,17 +531,28 @@ func statePoller(monArray []uint16) {
 
 		if c2ok {
 			wsCache.update("vacation", c2)
-			pf := fmt.Sprintf("mqtt/%s/vacation", instanceName)
-			mqttCache.update(pf+"/active", *c2.Active)
-			mqttCache.update(pf+"/days", *c2.Days)
-			mqttCache.update(pf+"/hours", *c2.Hours)
-			mqttCache.update(pf+"/minTemp", *c2.MinTemperature)
-			mqttCache.update(pf+"/maxTemp", *c2.MaxTemperature)
-			mqttCache.update(pf+"/minHumidity", *c2.MinHumidity)
-			mqttCache.update(pf+"/maxHumidity", *c2.MaxHumidity)
-			mqttCache.update(pf+"/fanMode", *c2.FanMode)
+			mqttCache.update(pf+"/vacation/active", *c2.Active)
+			mqttCache.update(pf+"/vacation/days", *c2.Days)
+			mqttCache.update(pf+"/vacation/hours", *c2.Hours)
+			mqttCache.update(pf+"/vacation/minTemp", *c2.MinTemperature)
+			mqttCache.update(pf+"/vacation/maxTemp", *c2.MaxTemperature)
+			mqttCache.update(pf+"/vacation/minHumidity", *c2.MinHumidity)
+			mqttCache.update(pf+"/vacation/maxHumidity", *c2.MaxHumidity)
+			mqttCache.update(pf+"/vacation/fanMode", *c2.FanMode)
 		}
 
+
+		// things to poll less-often
+		if c1ok && cyc_i == 0 {
+			c3, c3ok := getTstatTemps()
+			if c3ok {
+				for zi := range c1.Zones {
+					zp := fmt.Sprintf("%s/zone/%d", pf, c1.Zones[zi].ZoneNumber)
+					mqttCache.update(zp+"/temp16", c3.Zones[zi].Temp16)
+				}
+			}
+		}
+		cyc_i = (cyc_i + 1) % 10
 
 		// rotate through the registoer monitor probes, if any
 		if len(monArray) > 0 {
@@ -801,7 +824,7 @@ func main() {
 
 	rawMonTable := []uint16{
 		// 0x3c01, 0x3c03, 0x3c0a, 0x3c0b, 0x3c0c, 0x3c0d, 0x3c0e, 0x3c0f, 0x3c14, 0x3d02, 0x3d03, 
-		0x3b05, 0x3b06, 0x3b0e, 0x3b0f, 0x3d02, 0x3d03,
+		0x3b05, 0x3b06, 0x3b0e, 0x3b0f, 0x3d03,
 	}
 
 	attachSnoops()

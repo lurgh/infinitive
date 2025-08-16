@@ -437,12 +437,13 @@ Reported per zone, where X is a zone number 1-8:
 * `infinitive/zone/X/flowWeight`: airflow allocation factor for this zone as a decimal fraction (0-1) - multiply the total airflowCFM
   by this number to get the reported airflow for this zone.
 * `infinitive/zone/X/overrideDurationMins`: minutes remaining on zone setting override, zero if none
+* `infinitive/zone/X/temp16`: high resolution, unsmoothed temperature, as a decimal number to .0625 degree precision
 
 HomeAssistant MQTT Discovery topics published:
 * `homeassistant/sensor/infinitive/*/config`: discovery topics, one per sensor, for:
   * all the "global" sensors: `outdoorTemp`, `humidity`, `rawMode`, `blowerRPM`, `airflowCFM`, `staticPressure`, `coolStage`, `heatStage`, `action`
   * all the vacation sensors: `vacation/active`, `vacation/days`, `vacation/hours`, `vacation/minTemp`, `vacation/maxTemp`, `vacation/minHumidity`, `vacation/maxHumidity`, `vacation/fanMode`
-  * per-zone "bonus" sensors (not supported by the Climate integration): `damperPos`, `flowWeight`, `overrideDurationMins`
+  * per-zone "bonus" sensors (not supported by the Climate integration): `damperPos`, `flowWeight`, `overrideDurationMins`, `temp16`
 * `homeassistant/button/infinitive/*/config`: discovery topics to create "buttons" as a convenience to manipulate vacation timing:
   * "HVAC Vacation Cancel", "HVAC Vacation Add 1 Hour", "HVAC Vacation Subtract 1 Hour", "HVAC Vacation 1 Hour", and so on (total of 18 buttons)
 * `homeassistant/climate/infinitive/*/config`: discovery topics, one per zone, for an MQTT HVAC climate entity, which includes:
