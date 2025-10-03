@@ -155,12 +155,12 @@ Any characters other than ' ', '*', '+', '/', '$', and '#' are accepted.  Infini
 length but it is best to keep it short since there are often tight constraints within MQTT agents.
 
 The instance name currently just affects MQTT; it is used in these ways:
-    * it is a prefix on every MQTT topic published or subscribed; therefore it allows multiple instances
-      of Infinitive to pub/sub on different topic name trees, e.g. "HVAC_Upstairs" and "HVAC_Downstairs", without conflicting
-    * it is used to create distinct discovery topics, unique IDs and entity names for all HA entities created by MQTT Discovery; therefore it
-      separate instances of HA entities will be created automatically, with distinct names, referring to the distinct MQTT topics
-      mentioned above, wiithout confusion or conflict
-    * it is used as the name of the Climate entity for unzoned systems (or when the zone name is "ZONE 1")
+  * it is a prefix on every MQTT topic published or subscribed; therefore it allows multiple instances
+of Infinitive to pub/sub on different topic name trees, e.g. "HVAC_Upstairs" and "HVAC_Downstairs", without conflicting
+  * it is used to create distinct discovery topics, unique IDs and entity names for
+all HA entities created by MQTT Discovery; therefore it separate instances of HA entities
+will be created automatically, with distinct names, referring to the distinct MQTT topics mentioned above, wiithout confusion or conflict
+  * it is used as the name of the Climate entity for unzoned systems (or when the zone name is "ZONE 1")
 
 When the instance name is uesd to create entity names, underscore "_" characters will be changed to spaces.
 So for example. "Upstairs_AC" will create entities named "Upstairs AC Action", etc.
@@ -177,12 +177,12 @@ $ infinitive ... -drying
 This enables Infinitive to report an HVAC action of 'drying' when the system is in DEHUMIDIFY mode.  Unfortunately, we have not found a way to get
 the thermostat to tell us it is in this mode.  When the System Status display (via the right-side button) shows DEHUMIDIFY, the thermostat just
 reports a cooling mode that is indistinguishable from actual COOLING.  So to implement this, we apply a heuristic to determine when to report
-'drying" as the current action instad of 'cooling'.  But only if this option has been set from the command line.
+'drying" as the current action instead of 'cooling'.  But only if this option has been set from the command line.
 
 The current test requires all these to be true:
-** the system is in a cooling stage
-** the current humidity (measured at the thermostat) is above its setpoint
-** all zones' temperatures are at or below their cooling setpoint
+  * the system is in a cooling stage
+  * the current humidity (measured at the thermostat) is above its setpoint
+  * all zones' temperatures are at or below their cooling setpoint
 
 This heuristic may be adjusted based on future learnings, or hopefully replaced by something more precise.
 
@@ -440,8 +440,8 @@ Global Vacation topics, apply to all zones:
 * `infinitive/vacation/fanMode`: will be used as the fan mode when in Vacation mode: `low`, `med`, `high`, `auto`
 
 Experimental, may change or disappear over time:
-* `infinitive/coilTemp`: coil temp reported by outdoor unit, in 0.125-degree resolution
-* `infinitive/outsideTemp`: outside temp reported by outdoor unit, in 0.125-degree resolution
+* `infinitive/coilTemp`: coil temp reported by outdoor unit, to 0.0625-degree precision
+* `infinitive/outsideTemp`: outside temp reported by outdoor unit, to 0.0625-degree precision
 * `infinitive/elecHeat`: bool flag indicating HP air handler is operating on electric heat
 * `infinitive/dispZone`: zone number currently displayed on the tstat
 * `infinitive/dispDOW`: numeric value of the day of week as displayed on the tstat, 0=Sunday
@@ -712,11 +712,13 @@ changed.
 
 Now craft a `-ductCap` argument by arranging the values in a list: first the leakage percent, then the zone percents in zone-number order from 1 to up to 8.
 For example, the author's 2-zone system shows
+
 | zone           | capacity |
 | -------------- | -------- |
 | Downstairs     | 56%      |
 | Upstairs       | 32%      |
 | DAMPER LEAKAGE | 12%      |
+
 So the arg will be `-ductCap=12,56,32`
 
 Note: we only have seen a small sample size but it looks like the system actually holds greater than integer precision for these values; comparing
@@ -748,6 +750,10 @@ There was a long-standing problem wherein occasionally Infinitive's UI would dis
 
 Please log an issue in Github if you have questions or requests related to the work in this fork.
 
-Upstream fork: @jkp717 did some initial work on multi-zone support which inspired me to extend what they started.
+Former upstream fork: @jkp717 did some initial work to implement multi-zone support in their own fork, which inspired me to extend what they started.  
+That fork has since been deleted but the work has effectively been preserved here.
+
+Upstream fork: @acd did the initial implementation of infiitive, which is now the upstream fork here.  Many thanks for that work.
+@acd has since substantially refactored that codebase to improve modularity and general goodness.
 
 Original author: Andrew Danforth (<adanforth@gmail.com>)
