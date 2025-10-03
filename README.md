@@ -420,8 +420,8 @@ System-global topics:
 * `infinitive/available`: status of infinitive's connection to MQTT: `online` or `offline`
 * `infinitive/outdoorTemp`: Outside temp as reported by thermostat, whole number degrees
 * `infinitive/mode`: System main mode normalized for Home Assistant, currently one of: `off`, `cool`, `heat`, `auto`
-* `infinitive/action`: Current action, Home Assistant compatible, currently one of: `off`, `heating`, `cooling`, `idle`
-* `infinitive/rawMode`: numeric representation of mode and action, a uint8 value - useful to developers for discovery
+* `infinitive/action`: Current action, Home Assistant compatible, currently one of: `off`, `heating`, `cooling`, `drying` (optional), `idle`
+* `infinitive/rawMode`: numeric representation of mode and action, a uint8 value - possibly useful to developers for discovery but does not cover all action states
 * `infinitive/humidity`: current humidity as reported by thermostat, in percent RH
 * `infinitive/coolStage`: compressor operating stage reported by outdoor unit, as a number 0/1/2
 * `infinitive/heatStage`: furnace operating stage, as a number 0/1/2; in HP systems this represents electric/emergency heat
