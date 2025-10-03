@@ -17,7 +17,7 @@ the needed Climate and Sensor entities for your system.  Of course, the MQTT int
 or just not configured if you don't want to use it.
 
 Active development and testing are still under way.  In particular we still need to look into the following:
-  * Still hoping to figure out how Dehumidify action is represented so we can reflect it in the UI/API - may need to resort to heuristics
+  * Precisely detect Dehumidify action - currently using a heuristic
   * Auto-detect the zone airflow weighting (please let me know if you find a way!)
   * MQTT: maybe support a read-only option
   * MQTT: add controls to change per-zone overrideDuration
@@ -170,6 +170,25 @@ Instance name, it will create a complete set of HA entities based on that name. 
 you may need to manually remove the retained discovery messages from your MQTT server in order to remove the unwanted entities.
 See the MQTT section below for more information.
 
+  * Enable reporting of 'drying' (dehumidify) action
+```
+$ infinitive ... -drying
+```
+This enables Infinitive to report an HVAC action of 'drying' when the system is in DEHUMIDIFY mode.  Unfortunately, we have not found a way to get
+the thermostat to tell us it is in this mode.  When the System Status display (via the right-side button) shows DEHUMIDIFY, the thermostat just
+reports a cooling mode that is indistinguishable from actual COOLING.  So to implement this, we apply a heuristic to determine when to report
+'drying" as the current action instad of 'cooling'.  But only if this option has been set from the command line.
+
+The current test requires all these to be true:
+** the system is in a cooling stage
+** the current humidity (measured at the thermostat) is above its setpoint
+** all zones' temperatures are at or below their cooling setpoint
+
+This heuristic may be adjusted based on future learnings, or hopefully replaced by something more precise.
+
+This version of 'action' is reported in the /api/airhandler endpoint, and via MQTT at /infinitive/action.  There are
+legacy 'Action' fields in the zone data reports which are calculated differently and will not reflect 'drying' mode.
+
 ## Building from source
 
 (This section needs some updates and refinement)
@@ -319,9 +338,12 @@ This call is also supported as "GET /api/zone/1/airhandler" for backward compati
 
 ```json
 {
-	"blowerRPM":0,
-	"airFlowCFM":0,
-	"elecHeat":false
+	"blowerRPM":217,
+	"airFlowCFM":420,
+    "staticPressure":0.0765,
+    "heatStage":0,
+	"elecHeat":false,
+    "action":"idle"
 }
 ```
 

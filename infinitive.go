@@ -82,6 +82,10 @@ var infinity *InfinityProtocol
 //  used as the root mqtt topic name and to unique-ify entities
 var instanceName string
 
+// system-level option to report 'drying' HVAC action
+//  we default to false to maintain backward compatibility
+var showDrying bool = false
+
 func holdTime(ht uint16) string {
 	if ht == 0 {
 		return ""
@@ -163,6 +167,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 					Preset:           presetz,
 					HeatSetpoint:     cfg.ZHeatSetpoint[zi],
 					CoolSetpoint:     cfg.ZCoolSetpoint[zi],
+					TargetHumidity:   cfg.ZTargetHumidity[zi],
 					OvrdDuration:     holdTime(cfg.ZOvrdDuration[zi]),
 					OvrdDurationMins: cfg.ZOvrdDuration[zi],
 					ZoneName:         zName }
@@ -481,6 +486,8 @@ func getDamperPosition() (DamperPosition, bool) {
 func statePoller(monArray []uint16) {
 	mon_i := 0
 	cyc_i := 0
+	potentially_drying := true	// prove this wrong
+
 	for {
 		// called once for all zones
 		c1, c1ok := getZonesConfig()
@@ -498,6 +505,7 @@ func statePoller(monArray []uint16) {
 				hum = c1.Zones[zi].CurrentHumidity
 				mqttCache.update(zp+"/coolSetpoint", c1.Zones[zi].CoolSetpoint)
 				mqttCache.update(zp+"/heatSetpoint", c1.Zones[zi].HeatSetpoint)
+				mqttCache.update(zp+"/targetHumidity", c1.Zones[zi].TargetHumidity)
 				mqttCache.update(zp+"/fanMode", c1.Zones[zi].FanMode)
 				mqttCache.update(zp+"/hold", *c1.Zones[zi].Hold)
 				mqttCache.update(zp+"/overrideDurationMins", c1.Zones[zi].OvrdDurationMins)
@@ -505,6 +513,10 @@ func statePoller(monArray []uint16) {
 					mqttCache.update(zp+"/preset", "vacation")
 				} else {
 					mqttCache.update(zp+"/preset", c1.Zones[zi].Preset)
+				}
+
+				if hum <= c1.Zones[zi].TargetHumidity || c1.Zones[zi].CurrentTemp > c1.Zones[zi].CoolSetpoint {
+					potentially_drying = false
 				}
 			}
 
@@ -527,6 +539,9 @@ func statePoller(monArray []uint16) {
 				tdiff = tdiff + 1440
 			}
 			mqttCache.update(pf+"/dispTimeDiff", tdiff)
+
+			// publish the potentially_drying state for use later when cooling is detected
+			mqttCache.update("local/potentially_drying", potentially_drying)
 		}
 
 		if c2ok {
@@ -614,7 +629,14 @@ func attachSnoops() {
 				airHandler.ElecHeat = data[0]&0x03 != 0
 				switch {
 				case data[2] & 0x03 != 0:
-					airHandler.Action = "cooling"
+					// see whether to report this as drying instead
+					pd := mqttCache.get("local/potentially_drying")
+					if showDrying && pd == true {
+						airHandler.Action = "drying"
+					} else {
+						airHandler.Action = "cooling"
+					}
+					log.Debugf("cooling stage while potentially_drying=%v, showDrying=%v, so action=%s", pd, showDrying, airHandler.Action)
 				case data[0] & 0x03 != 0:
 					airHandler.Action = "heating"
 				default:
@@ -733,6 +755,7 @@ func main() {
 	instance := flag.String("instance", "infinitive", "unique system instance name")
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
 	doDebugLog := flag.Bool("debug", false, "enable debug log level")
+	showDryingOpt := flag.Bool("drying", false, "enable reporting of Drying HVAC action")
 
 	flag.Parse()
 
@@ -743,6 +766,11 @@ func main() {
 		os.Exit(1)
 	}
 	instanceName = *instance
+
+	if showDryingOpt != nil && *showDryingOpt {
+		showDrying = true
+	}
+	log.Infoln("Option showDrying: ", showDrying)
 
 	if len(*serialPort) == 0 {
 		fmt.Print("must provide serial\n")

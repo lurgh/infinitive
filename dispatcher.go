@@ -67,7 +67,12 @@ func serializeEvent(source string, data interface{}) []byte {
 }
 
 func (d *EventDispatcher) broadcastEvent(source string, data interface{}) {
-	if source[0:5] == "mqtt/" {
+	if len(source) > 6 && source[0:6] == "local/" {
+		// local events don't broadcast anywhere
+		topic := source[6:]
+		value := fmt.Sprintf("%v", data)
+		log.Infof("LOCAL: %s -> %s", topic, value)
+	} else if source[0:5] == "mqtt/" {
 		if mqttClient != nil {
 			topic := source[5:]
 			value := fmt.Sprintf("%v", data)
