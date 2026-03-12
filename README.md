@@ -543,8 +543,8 @@ up to 1 second, due to the thermostat polling interval.
 
 Global topics:
 * `infinitive/mode/set`: Set the main operating mode (same options as above)
-* `infinitive/vacation/hours/set`: set Vacation mode time in hours; set to 0 to cancel, or prefix with '+' or '-' for relative settings
-* `infinitive/vacation/days/set`: set Vacation mode time in days; set to 0 to cancel, or prefix with '+' or '-' for relative settings
+* `infinitive/vacation/hours/set`: set Vacation mode time in hours; set to 0 to cancel, prefix with '+' or '-' for relative settings; range 0-32767 after relative
+* `infinitive/vacation/days/set`: set Vacation mode time in days; set to 0 to cancel, or prefix with '+' or '-' for relative settings; range 0-127
 
 Experimental topics:
 * `infinitive/dispZone/set`: set the system to display a particular zone (where zone number is 1-8 and presumably must exist)
@@ -733,6 +733,17 @@ Vacation mode temp/fan settings are read-only.  No access is provided for the sc
 
 
 #### Issues
+##### Infinity Vacation Settings
+There are some inconsistencies and limitations in the way Vacation mode times are handled: First, the vacation time remaining appears to be stored
+in the termostat as a 16-bit integer, which we have not determined whether it is treated as signed or unsigned; since 32,768 hours (over 3 years)
+of vacation seems like enough, we just treat is as signed when setting, but read it as unsigned when presetnting, just in caae.
+Second, Infinitive's code converts the time to/from days for reading or setting, but artifically limits the days to an 8-bit signed value, which is only
+large enough to represent 3048 hours.  Therefore until this is fixed, `days` should not be used for vacation settings longer than 127 days, since it will be
+inadequate (refused at write) or incorrect (corrupted at read).
+
+Lastly, we observe that our thermostat displays the remaining Vacation time in days, but truncates if after at the first 3 digits if it is longer - so
+for example, a 30,000 hour vacation time shows as "125 days" rather than 1250.  But it appears to actually track the number of remaining hours/days
+correctly.
 ##### rPi USB stack
 The USB to RS-485 adapter I'm using periodically locks up due to what appear to be USB stack issues on the Raspberry Pi 3.  When this happens, reads on the serial file descriptor block forever and the kernel logs the following:
 ```

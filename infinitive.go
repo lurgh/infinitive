@@ -386,11 +386,12 @@ func putVacationConfig(param string, value string) bool {
 			apiConfig.Days = &v8
 		}
 	case "hours":
+		// hours is limited to 0-32768, including after incremental
 		if val, err := strconv.ParseInt(value, 10, 16); err != nil {
-			log.Errorf("putVacationConfig: invalid days value '%s'", value)
+			log.Errorf("putVacationConfig: invalid hours value '%s'", value)
 			return false
 		} else {
-			val = max(0, val + int64(bHours))
+			val = min(max(0, val + int64(bHours)), int64(32767))
 			v16 := uint16(val)
 			apiConfig.Hours = &v16
 		}
