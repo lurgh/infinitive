@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -107,9 +108,10 @@ func webserver(port int) {
 
 	api.PUT("/zone/:zn/config", func(c *gin.Context) {
 		var args TStatZoneConfig
+		reqArgs := map[string]json.RawMessage{}
 		zn, err := strconv.Atoi(c.Param("zn"));
 
-		if c.Bind(&args) != nil {
+		if reqBody, berr := c.GetRawData(); berr != nil || json.Unmarshal(reqBody, &args) != nil || json.Unmarshal(reqBody, &reqArgs) != nil {
 			log.Printf("bind failed")
 		} else if err != nil || zn < 1 || zn > 8 {
 			log.Printf("invalid zone numner")
@@ -117,7 +119,7 @@ func webserver(port int) {
 			params := TStatZoneParams{}
 			flags := uint16(0)
 			zi := zn - 1
-			overrideReq := args.OvrdDurationMins > 0
+			_, overrideReq := reqArgs["overrideDurationMins"]
 
 			if len(args.FanMode) > 0 {
 				mode, ok := stringFanModeToRaw(args.FanMode)
@@ -148,7 +150,7 @@ func webserver(port int) {
 				flags |= 0x08
 			}
 
-			if args.OvrdDurationMins > 0 {
+			if overrideReq {
 				cur, ok := getZNConfig(zi)
 				if !ok {
 					log.Printf("unable to read zone config for override duration write")

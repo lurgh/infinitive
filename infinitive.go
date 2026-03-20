@@ -246,6 +246,19 @@ func putConfig(zone string, param string, value string) bool {
 				params.ZHeatSetpoint[zi] = uint8(val)
 				flags |= 0x04
 			}
+		case "overrideDurationMins":
+			if val, err := strconv.ParseUint(value, 10, 16); err != nil {
+				log.Errorf("putConfig: invalid overrideDurationMins value '%s' for zone %d", value, zn)
+				return false
+			} else if cur, ok := getZNConfig(zi); !ok {
+				log.Errorf("putConfig: unable to read current zone config for overrideDurationMins write, zone %d", zn)
+				return false
+			} else if !writeZoneOverrideDuration(zn, uint16(val), cur.HeatSetpoint, cur.CoolSetpoint) {
+				log.Errorf("putConfig: failed to write overrideDurationMins=%d for zone %d", val, zn)
+				return false
+			} else {
+				return true
+			}
 		case "hold":	// dedicated 'hold' semantics
 			var val bool
 			switch value {
