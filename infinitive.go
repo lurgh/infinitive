@@ -93,6 +93,26 @@ func holdTime(ht uint16) string {
 	return fmt.Sprintf("%d:%02d", ht/60, ht % 60)
 }
 
+// Timed hold writes must start from a live copy of table 003b03 and carry the
+// current setpoints, otherwise unrelated zone fields can be clobbered.
+func writeZoneOverrideDuration(zoneNumber int, durationMins uint16, heatSetpoint uint8, coolSetpoint uint8) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	zi := zoneNumber - 1
+	params := TStatZoneParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return false
+	}
+
+	params.ZOvrdDuration[zi] = durationMins
+	params.ZHeatSetpoint[zi] = heatSetpoint
+	params.ZCoolSetpoint[zi] = coolSetpoint
+
+	return infinity.WriteTableZ(devTSTAT, params, uint8(zi), 0x10c)
+}
+
 // get vacation config and status
 func getVacationConfig() (*APIVacationConfig, bool) {
 	vac := TStatVacationParams{}
