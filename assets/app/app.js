@@ -98,6 +98,47 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
     });
   }
 
+  function adjustOverrideDuration(current, delta) {
+    var step = 15;
+
+    if (delta > 0) {
+      if (current === 0) {
+        return 120;
+      }
+      var roundedUp = Math.ceil(current / step) * step;
+      if (roundedUp === current) {
+        return current + step;
+      }
+      return roundedUp;
+    }
+
+    if (delta < 0) {
+      var roundedDown = Math.floor(current / step) * step;
+      if (roundedDown === current) {
+        return current >= step ? current - step : 0;
+      }
+      return roundedDown;
+    }
+
+    return current;
+  }
+
+  $scope.incOverrideDuration = function(zone,val) {
+    var current = $scope.tstat.zones[zone-1].overrideDurationMins || 0;
+    var target = adjustOverrideDuration(current, val);
+
+    if (target === 0) {
+      $http.put("/api/zone/" + zone + "/config", { "hold": false }).then(function(response) {
+        console.log("cleared hold zone " + zone) ;
+      });
+      return;
+    }
+
+    $http.put("/api/zone/" + zone + "/config", { "overrideDurationMins": target }).then(function(response) {
+      console.log("set override duration zone " + zone + " to " + target) ;
+    });
+  }
+
 /*
   $interval(function () {
      $scope.refreshState();

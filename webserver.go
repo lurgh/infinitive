@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 
@@ -116,6 +117,7 @@ func webserver(port int) {
 			params := TStatZoneParams{}
 			flags := uint16(0)
 			zi := zn - 1
+			overrideReq := args.OvrdDurationMins > 0
 
 			if len(args.FanMode) > 0 {
 				mode, ok := stringFanModeToRaw(args.FanMode)
@@ -136,14 +138,34 @@ func webserver(port int) {
 				flags |= 0x02
 			}
 
-			if args.HeatSetpoint > 0 {
+			if args.HeatSetpoint > 0 && !overrideReq {
 				params.ZHeatSetpoint[zi] = args.HeatSetpoint
 				flags |= 0x04
 			}
 
-			if args.CoolSetpoint > 0 {
+			if args.CoolSetpoint > 0 && !overrideReq {
 				params.ZCoolSetpoint[zi] = args.CoolSetpoint
 				flags |= 0x08
+			}
+
+			if args.OvrdDurationMins > 0 {
+				cur, ok := getZNConfig(zi)
+				if !ok {
+					log.Printf("unable to read zone config for override duration write")
+					return
+				}
+				heat := cur.HeatSetpoint
+				cool := cur.CoolSetpoint
+				if args.HeatSetpoint > 0 {
+					heat = args.HeatSetpoint
+				}
+				if args.CoolSetpoint > 0 {
+					cool = args.CoolSetpoint
+				}
+				if !writeZoneOverrideDuration(zn, args.OvrdDurationMins, heat, cool) {
+					log.Printf("failed to write zone override duration")
+					return
+				}
 			}
 
 			if flags != 0 {
@@ -191,8 +213,11 @@ func webserver(port int) {
 		h.ServeHTTP(c.Writer, c.Request)
 	})
 
-	r.StaticFS("/ui", assetFS())
-	// r.Static("/ui", "github.com/acd/infinitease/assets")
+	if fi, err := os.Stat("assets"); err == nil && fi.IsDir() {
+		r.Static("/ui", "./assets")
+	} else {
+		r.StaticFS("/ui", assetFS())
+	}
 
 	r.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "ui")

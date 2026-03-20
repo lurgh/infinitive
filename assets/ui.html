@@ -36,16 +36,30 @@
            </div>
 
 <div class="col-xs-4">
-<h5>Hold
-	<span ng-hide="!zone.overrideDuration">{{ zone.overrideDuration }}</span>
-</h5>
+  <h5>Hold</h5>
              <div class="btn-group" role="group">
                <a role="button" class="btn btn-default btm-sm" ng-disabled="!zone.hold" ng-click="setHold(zone.zoneNumber,false)">Off</a>
                <a role="button" class="btn btn-default btm-sm" ng-disabled="zone.hold" ng-click="setHold(zone.zoneNumber,true)">On</a>
            </div>
+           <h5>Override duration</h5>
+           <div class="row row-centered">
+             <div class="col-xs-4">
+               <a role="button" class="btn btn-default btn-sm" ng-click="incOverrideDuration(zone.zoneNumber,1)">
+                 <span class="glyphicon glyphicon-triangle-top"></span>
+               </a>
+             </div>
+             <div class="col-xs-4">
+               <h5>{{ zone.overrideDuration || "Off" }}</h5>
+             </div>
+             <div class="col-xs-4">
+               <a role="button" class="btn btn-default btn-sm" ng-disabled="!zone.overrideDurationMins" ng-click="incOverrideDuration(zone.zoneNumber,-1)">
+                 <span class="glyphicon glyphicon-triangle-bottom"></span>
+               </a>
+             </div>
+           </div>
         </div>
     </div>
-    </div>
+	    </div>
       </div>
 
 
