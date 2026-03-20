@@ -34,6 +34,19 @@ type discoveryTopicButton struct {
 	Avail	    string    `json:"availability_topic,omitempty"`
 }
 
+type discoveryTopicNumber struct {
+	StateTopic   string `json:"state_topic"`
+	CommandTopic string `json:"command_topic"`
+	Name         string `json:"name"`
+	Mode         string `json:"mode,omitempty"`
+	Min          uint16 `json:"min"`
+	Max          uint16 `json:"max"`
+	Step         uint16 `json:"step"`
+	UoM          string `json:"unit_of_measurement,omitempty"`
+	Unique_id    string `json:"unique_id"`
+	Avail        string `json:"availability_topic,omitempty"`
+}
+
 type EventDispatcher struct {
 	listeners  map[*EventListener]bool
 	broadcast  chan []byte
@@ -339,6 +352,9 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[1]s Override duration", "duration", "measurement", "min", "hvac-sensors-z%[2]d-odur", a},
 		{ "%[4]s/zone/%[2]d/temp16", "%[1]s Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-z%[2]d-t16", a},
 	}
+	numbers := []discoveryTopicNumber {
+		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[4]s/zone/%[2]d/overrideDurationMins/set", "%[1]s Set override duration", "box", 0, 1440, 15, "min", "hvac-numbers-z%[2]d-sodur", a},
+	}
 	tempu := "F"
 	if tu > 0 { tempu = "C" }
 	duid := fmt.Sprintf("climate-zone-%d", zi+1)
@@ -370,6 +386,24 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 		log.Infof("MQTT ZONE SENSOR DISC: %v", j)
 		if err == nil {
 			_ = mqttClient.Publish("homeassistant/sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+		}
+	}
+
+	// write discovery topics for per-zone numbers
+	for _, v := range numbers {
+		v.StateTopic = fmt.Sprintf(v.StateTopic, zn, zi+1, tempu, instanceName)
+		v.CommandTopic = fmt.Sprintf(v.CommandTopic, zn, zi+1, tempu, instanceName)
+		v.Name = fmt.Sprintf(v.Name, zn, zi+1, tempu, instanceName)
+		v.Unique_id = fmt.Sprintf(v.Unique_id, zn, zi+1, tempu, instanceName)
+
+		if instanceName != "infinitive" {
+			v.Unique_id =  instanceName + "-" + v.Unique_id
+		}
+
+		j, err := json.Marshal(&v)
+		log.Infof("MQTT ZONE NUMBER DISC: %v", j)
+		if err == nil {
+			_ = mqttClient.Publish("homeassistant/number/infinitive/" + v.Unique_id + "/config", 0, true, j)
 		}
 	}
 

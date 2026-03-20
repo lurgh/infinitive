@@ -466,6 +466,8 @@ HomeAssistant MQTT Discovery topics published:
   * all the "global" sensors: `outdoorTemp`, `humidity`, `rawMode`, `blowerRPM`, `airflowCFM`, `staticPressure`, `coolStage`, `heatStage`, `action`
   * all the vacation sensors: `vacation/active`, `vacation/days`, `vacation/hours`, `vacation/minTemp`, `vacation/maxTemp`, `vacation/minHumidity`, `vacation/maxHumidity`, `vacation/fanMode`
   * per-zone "bonus" sensors (not supported by the Climate integration): `damperPos`, `flowWeight`, `overrideDurationMins`, `temp16`
+* `homeassistant/number/infinitive/*/config`: discovery topics, one per writable number entity, for:
+  * per-zone "Set override duration" in 15-minute steps, using the same MQTT state and `/set` command topics
 * `homeassistant/button/infinitive/*/config`: discovery topics to create "buttons" as a convenience to manipulate vacation timing:
   * "HVAC Vacation Cancel", "HVAC Vacation Add 1 Hour", "HVAC Vacation Subtract 1 Hour", "HVAC Vacation 1 Hour", and so on (total of 18 buttons)
 * `homeassistant/climate/infinitive/*/config`: discovery topics, one per zone, for an MQTT HVAC climate entity, which includes:
@@ -555,6 +557,7 @@ Zone topics:
 * `infinitive/zone/X/fanMode/set`: set the fan mode setting, same options as above
 * `infinitive/zone/X/hold/set`: set the zone hold setting, same options as above
 * `infinitive/zone/X/preset/set`: set the zone "preset" setting, `hold` or `none`; `vacation` cannot be set here but setting `hold` will unset it
+* `infinitive/zone/X/overrideDurationMins/set`: set the remaining timed override duration in minutes; `0` clears it
 
 Again remember that the "infinitive/" prefix on these subscribed names will be changed to the instance name if one is provided.  This allows multiple instances of Infinitive to coexist on one MQTT bus.
 
