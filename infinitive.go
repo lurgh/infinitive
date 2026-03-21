@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -21,6 +22,7 @@ type TStatZoneConfig struct {
 	TargetHumidity  uint8  `json:"targetHumidity"`
 	ZoneName	string `json:"zoneName"`
 	FanMode         string `json:"fanMode"`
+	ZoneOff         bool   `json:"zoneOff"`
 	Hold            *bool  `json:"hold"`
 	OverrideActive bool `json:"overrideActive"`
 	Preset          string `json:"preset"`
@@ -47,6 +49,19 @@ type TStatZonesConfig struct {
 	DispTime          uint16 `json:"dispTime"`
 	DispZone          uint8  `json:"dispZone"`
 }
+
+type zoneResponseSpoofProfile struct {
+	payload []byte
+	count   int
+	gap     time.Duration
+}
+
+type zoneResponseSpoofState struct {
+	mu       sync.Mutex
+	profiles map[int]zoneResponseSpoofProfile
+}
+
+var activeZoneResponseSpoofs = zoneResponseSpoofState{profiles: map[int]zoneResponseSpoofProfile{}}
 
 type AirHandler struct {
 	BlowerRPM      uint16  `json:"blowerRPM"`
@@ -79,6 +94,41 @@ var RLogger Logger;
 
 var infinity *InfinityProtocol
 
+type busCaptureFlag struct {
+	enabled bool
+	auto    bool
+	path    string
+}
+
+func (f *busCaptureFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return f.path
+}
+
+func (f *busCaptureFlag) Set(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "true":
+		f.enabled = true
+		f.auto = true
+		f.path = ""
+	case "false":
+		f.enabled = false
+		f.auto = false
+		f.path = ""
+	default:
+		f.enabled = true
+		f.auto = false
+		f.path = value
+	}
+	return nil
+}
+
+func (f *busCaptureFlag) IsBoolFlag() bool {
+	return true
+}
+
 // system instance name (default: "infinitive")
 //  used as the root mqtt topic name and to unique-ify entities
 var instanceName string
@@ -96,6 +146,57 @@ func holdTime(ht uint16) string {
 	return fmt.Sprintf("%d:%02d", ht/60, ht % 60)
 }
 
+func zoneModeString(mode uint8, zoneOff bool) string {
+	globalMode := rawModeToString(mode & 0xf)
+	if globalMode == "off" || zoneOff {
+		return "off"
+	}
+	return globalMode
+}
+
+// Writes to TStatCurrentParams can skew the thermostat clock, so every write
+// that touches this table also refreshes day/time from the host.
+func writeCurrentConfig(params TStatCurrentParams, flags uint16) bool {
+	tnow := time.Now().Add(time.Second * 30)
+	params.DispDOW = uint8(tnow.Weekday())
+	params.DispTimeMin = uint16(tnow.Hour()*60 + tnow.Minute())
+	flags |= flagCurrentDispDOW | flagCurrentDispTime
+
+	return infinity.WriteTable(devTSTAT, params, flags)
+}
+
+func writeCurrentConfigAsTstat(params TStatCurrentParams, flags uint16) bool {
+	tnow := time.Now().Add(time.Second * 30)
+	params.DispDOW = uint8(tnow.Weekday())
+	params.DispTimeMin = uint16(tnow.Hour()*60 + tnow.Minute())
+	flags |= flagCurrentDispDOW | flagCurrentDispTime
+
+	return infinity.WriteTableAs(devTSTAT, devTSTAT, params, flags)
+}
+
+func writeGlobalMode(mode string) bool {
+	rawMode, ok := stringModeToRaw(mode)
+	if !ok {
+		log.Errorf("writeGlobalMode: invalid mode '%s'", mode)
+		return false
+	}
+
+	params := TStatCurrentParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		log.Errorf("writeGlobalMode: unable to read current params")
+		return false
+	}
+
+	if params.Mode&0xf == rawMode {
+		log.Infof("writeGlobalMode: already in mode '%s'", mode)
+		return true
+	}
+
+	params.Mode = rawMode
+	log.Infof("writeGlobalMode: writing mode '%s' raw=0x%02x", mode, rawMode)
+	return writeCurrentConfig(params, flagCurrentMode)
+}
+
 // On this thermostat, clearing a timed "hold until" override is done through
 // the same zone-hold write used to resume schedule. A duration write of 0 does
 // not reliably clear S1Z1OVR on its own, so overrideDurationMins=0 must map to
@@ -107,6 +208,257 @@ func writeZoneResumeSchedule(zoneNumber int) bool {
 
 	params := TStatZoneParams{}
 	return infinity.WriteTableZ(devTSTAT, params, uint8(zoneNumber-1), 0x02)
+}
+
+func writeLegacyZoneMode(zoneNumber int, mode string) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	params := TStatCurrentParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return false
+	}
+
+	zi := zoneNumber - 1
+	zbit := uint8(0x01 << zi)
+	flags := uint16(0)
+
+	switch mode {
+	case "off":
+		if params.ZoneUnocc&zbit != 0 {
+			return true
+		}
+		params.ZoneUnocc |= zbit
+		flags |= flagCurrentZoneUnocc
+	case "heat", "cool", "auto":
+		rawMode, _ := stringModeToRaw(mode)
+		if params.ZoneUnocc&zbit != 0 {
+			params.ZoneUnocc &^= zbit
+			flags |= flagCurrentZoneUnocc
+		}
+		if params.Mode&0xf != rawMode {
+			params.Mode = rawMode
+			flags |= flagCurrentMode
+		}
+	default:
+		return false
+	}
+
+	if flags == 0 {
+		return true
+	}
+
+	return writeCurrentConfig(params, flags)
+}
+
+func writeLegacyZoneOff(zoneNumber int, zoneOff bool) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	params := TStatCurrentParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return false
+	}
+
+	zbit := uint8(0x01 << (zoneNumber - 1))
+	if zoneOff {
+		if params.ZoneUnocc&zbit != 0 {
+			return true
+		}
+		params.ZoneUnocc |= zbit
+	} else {
+		if params.ZoneUnocc&zbit == 0 {
+			return true
+		}
+		params.ZoneUnocc &^= zbit
+	}
+
+	return writeCurrentConfig(params, flagCurrentZoneUnocc)
+}
+
+func writeLegacyZoneOffAsTstat(zoneNumber int, zoneOff bool) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	params := TStatCurrentParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return false
+	}
+
+	zbit := uint8(0x01 << (zoneNumber - 1))
+	if zoneOff {
+		if params.ZoneUnocc&zbit != 0 {
+			return true
+		}
+		params.ZoneUnocc |= zbit
+	} else {
+		if params.ZoneUnocc&zbit == 0 {
+			return true
+		}
+		params.ZoneUnocc &^= zbit
+	}
+
+	return writeCurrentConfigAsTstat(params, flagCurrentZoneUnocc)
+}
+
+func rewriteRemoteZoneSetpoints(zoneNumber int) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	zi := zoneNumber - 1
+	cfg := TStatZoneParams{}
+	if !infinity.ReadTable(devTSTAT, &cfg) {
+		log.Errorf("rewriteRemoteZoneSetpoints: unable to read thermostat zone params for zone %d", zoneNumber)
+		return false
+	}
+
+	heatSetpoint := cfg.ZHeatSetpoint[zi]
+	coolSetpoint := cfg.ZCoolSetpoint[zi]
+	if heatSetpoint == 0 && coolSetpoint == 0 {
+		log.Errorf("rewriteRemoteZoneSetpoints: zone %d has no setpoints to rewrite", zoneNumber)
+		return false
+	}
+
+	log.Warnf(
+		"rewriteRemoteZoneSetpoints: zone %d re-enable fallback via 003b03 heat=%d cool=%d",
+		zoneNumber,
+		heatSetpoint,
+		coolSetpoint,
+	)
+
+	if heatSetpoint > 0 {
+		params := TStatZoneParams{}
+		params.ZHeatSetpoint[zi] = heatSetpoint
+		if !infinity.WriteTableZ(devTSTAT, params, uint8(zi), 0x04) {
+			log.Errorf("rewriteRemoteZoneSetpoints: failed heat setpoint rewrite for zone %d", zoneNumber)
+			return false
+		}
+	}
+
+	if coolSetpoint > 0 {
+		params := TStatZoneParams{}
+		params.ZCoolSetpoint[zi] = coolSetpoint
+		if !infinity.WriteTableZ(devTSTAT, params, uint8(zi), 0x08) {
+			log.Errorf("rewriteRemoteZoneSetpoints: failed cool setpoint rewrite for zone %d", zoneNumber)
+			return false
+		}
+	}
+
+	return true
+}
+
+func writeZoneOverrideDurationOnly(zoneNumber int, durationMins uint16) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	zi := zoneNumber - 1
+	params := TStatZoneParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return false
+	}
+
+	params.ZOvrdDuration[zi] = durationMins
+	return infinity.WriteTableZAs(devTSTAT, devTSTAT, params, uint8(zi), 0x100)
+}
+
+func writeZoneOverrideDurationAsTstat(zoneNumber int, durationMins uint16, heatSetpoint uint8, coolSetpoint uint8) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	zi := zoneNumber - 1
+	params := TStatZoneParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return false
+	}
+
+	params.ZoneHold &^= 1 << zi
+	params.ZOvrdDuration[zi] = durationMins
+	params.ZHeatSetpoint[zi] = heatSetpoint
+	params.ZCoolSetpoint[zi] = coolSetpoint
+	return infinity.WriteTableZAs(devTSTAT, devTSTAT, params, uint8(zi), 0x10e)
+}
+
+func syncRemoteZoneOffConfig(zoneNumber int, payload []byte) bool {
+	return true
+}
+
+func writeZoneOff(zoneNumber int, zoneOff bool) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	if zoneNumber == 1 {
+		return writeLegacyZoneOff(zoneNumber, zoneOff)
+	}
+
+	if zoneOff {
+		if spoofPayload, ok := buildRemoteZoneOffSpoofPayload(zoneNumber); ok {
+			setZoneResponseSpoof(zoneNumber, spoofPayload, 4, 15*time.Millisecond)
+			log.Infof("writeZoneOff: zone %d armed remote 00041e spoof payload=%s", zoneNumber, hex.EncodeToString(spoofPayload))
+		}
+
+		if current, _, ok := remoteZoneCache.zoneOff(zoneNumber); ok && current {
+			log.Infof("writeZoneOff: zone %d already disabled", zoneNumber)
+			return true
+		}
+
+		payload, reason, ok := remoteZoneCache.offPayload(zoneNumber)
+		if !ok {
+			log.Errorf("writeZoneOff: zone %d disable requested before any cached 00041f payload was seen", zoneNumber)
+			return false
+		}
+
+		if !syncRemoteZoneOffConfig(zoneNumber, payload) {
+			return false
+		}
+
+		return writeRemoteZonePayload(zoneNumber, payload, "disablebit/"+reason)
+	}
+
+	clearZoneResponseSpoof(zoneNumber)
+
+	if current, _, ok := remoteZoneCache.zoneOff(zoneNumber); ok && !current {
+		log.Infof("writeZoneOff: zone %d already enabled", zoneNumber)
+		return true
+	}
+
+	if payload, reason, ok := remoteZoneCache.onPayload(zoneNumber); ok {
+		return writeRemoteZonePayload(zoneNumber, payload, "enablebit/"+reason)
+	}
+
+	log.Warnf("writeZoneOff: zone %d enable requested without cached ON payload, falling back to thermostat setpoint rewrite", zoneNumber)
+	return rewriteRemoteZoneSetpoints(zoneNumber)
+}
+
+func writeZoneMode(zoneNumber int, mode string) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	if zoneNumber == 1 {
+		log.Infof("writeZoneMode: zone %d mode '%s' using thermostat zone-mode fallback", zoneNumber, mode)
+		return writeLegacyZoneMode(zoneNumber, mode)
+	}
+
+	switch mode {
+	case "off":
+		return writeZoneOff(zoneNumber, true)
+	case "heat", "cool", "auto":
+		if !writeGlobalMode(mode) {
+			log.Errorf("writeZoneMode: unable to set global mode '%s' while enabling zone %d", mode, zoneNumber)
+			return false
+		}
+
+		return writeZoneOff(zoneNumber, false)
+	default:
+		return false
+	}
 }
 
 // Timed hold writes must start from a live copy of table 003b03 and carry the
@@ -148,6 +500,17 @@ func getVacationConfig() (*APIVacationConfig, bool) {
 
 	vacAPI := vac.toAPI()
 	return &vacAPI, true
+}
+
+func zoneOffForConfig(zoneNumber int, params *TStatCurrentParams) bool {
+	if zoneNumber > 1 {
+		if zoneOff, _, ok := remoteZoneCache.zoneOff(zoneNumber); ok {
+			return zoneOff
+		}
+		return false
+	}
+
+	return params.ZoneUnocc&0x01 != 0
 }
 
 // get config and status for all zones in one go
@@ -198,6 +561,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 			overrideActive := ((cfg.ZTimedOvrdState & (0x01 << zi)) != 0)
 			overrideDurationMins := cfg.ZOvrdDuration[zi]
 			overrideDuration := holdTime(overrideDurationMins)
+			zoneOff := zoneOffForConfig(zi+1, &params)
 			presetz := "none"
 
 			if holdz {
@@ -215,6 +579,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 				CurrentTemp:      params.ZCurrentTemp[zi],
 				CurrentHumidity:  params.ZCurrentHumidity[zi],
 				FanMode:          rawFanModeToString(cfg.ZFanMode[zi]),
+				ZoneOff:          zoneOff,
 				Hold:             &holdz,
 				OverrideActive: overrideActive,
 				Preset:           presetz,
@@ -223,6 +588,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 				TargetHumidity:   cfg.ZTargetHumidity[zi],
 				OvrdDuration:     overrideDuration,
 				OvrdDurationMins: overrideDurationMins,
+				Mode:             zoneModeString(params.Mode, zoneOff),
 				ZoneName:         zName }
 
 			zc++
@@ -314,6 +680,22 @@ func putConfig(zone string, param string, value string) bool {
 					return true
 				}
 			}
+		case "mode":
+			if !writeZoneMode(zn, value) {
+				log.Errorf("putConfig: invalid mode value '%s' for zone %d", value, zn)
+				return false
+			}
+			return true
+		case "zoneOff":
+			switch value {
+				case "true":
+					return writeZoneOff(zn, true)
+				case "false":
+					return writeZoneOff(zn, false)
+				default:
+					log.Errorf("putConfig: invalid zoneOff value '%s' for zone %d", value, zn)
+					return false
+			}
 		case "hold":	// dedicated 'hold' semantics
 			var val bool
 			switch value {
@@ -324,7 +706,7 @@ func putConfig(zone string, param string, value string) bool {
 				default:
 					log.Errorf("putConfig: invalid hold value '%s' for zone %d", value, zn)
 					return false
-				}
+			}
 			if val {
 				params.ZoneHold = 0x01 << zi
 			}
@@ -339,7 +721,7 @@ func putConfig(zone string, param string, value string) bool {
 				default:
 					log.Errorf("putConfig: invalid preset value '%s' for zone %d", value, zn)
 					return false
-				}
+			}
 			if val {
 				params.ZoneHold = 0x01 << zi
 			}
@@ -356,41 +738,23 @@ func putConfig(zone string, param string, value string) bool {
 
 		return true
 	} else if zn == 0 {
-		p := TStatCurrentParams{}
-
 		switch param {
 		case "mode":
-			if mode, ok := stringModeToRaw(value); !ok {
-				log.Errorf("putConfig: invalid mode value '%s'", value)
-				return false
-			} else {
-				p.Mode = mode
-				flags = 0x10
-			}
+			return writeGlobalMode(value)
 		case "dispZone":
+			p := TStatCurrentParams{}
 			if val, err := strconv.ParseUint(value, 10, 8); err != nil || val < 1 || val > 2 {
 				log.Errorf("putConfig: invalid dispZone value '%s'", value)
 				return false
 			} else {
 				p.DispZone = uint8(val)
-				flags = 0x200
+				flags = flagCurrentDispZone
+				return writeCurrentConfig(p, flags)
 			}
 		default:
 			log.Errorf("putConfig: invalid parameter name '%s'", param)
 			return false
 		}
-
-		// setting these parameters can make our thermostat lose up to 1 min of time keeping
-		// so we include a time/day setting with every command; adding 30s helps in rounding to
-		// the nearest minute given truncation to one-minute resolution
-		tnow := time.Now().Add(time.Second * 30)
-		p.DispDOW = uint8(tnow.Weekday())
-		p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
-		flags = flags | 0x180
-
-		infinity.WriteTable(devTSTAT, p, flags)
-
-		return true
 	}
 
 	log.Errorf("putConfig: invalid zone number %d", zn)
@@ -418,6 +782,7 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 	overrideActive := cfg.ZTimedOvrdState & (0x01 << zi) != 0
 	overrideDurationMins := cfg.ZOvrdDuration[zi]
 	overrideDuration := holdTime(overrideDurationMins)
+	zoneOff := zoneOffForConfig(zi+1, &params)
 	presetz := "none"
 
 	if hold {
@@ -432,10 +797,11 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 		CurrentTemp:     params.ZCurrentTemp[zi],
 		CurrentHumidity: params.ZCurrentHumidity[zi],
 		OutdoorTemp:     params.OutdoorAirTemp,
-		Mode:            rawModeToString(params.Mode & 0xf),
+		Mode:            zoneModeString(params.Mode, zoneOff),
 		Stage:           params.Mode >> 5,
 		Action:          rawActionToString(params.Mode >> 5),
 		FanMode:         rawFanModeToString(cfg.ZFanMode[zi]),
+		ZoneOff:         zoneOff,
 		Hold:            &hold,
 		OverrideActive: overrideActive,
 		Preset:          presetz,
@@ -447,6 +813,500 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 		TargetHumidity:  cfg.ZTargetHumidity[zi],
 		RawMode:         params.Mode,
 	}, true
+}
+
+func waitForZoneTestReady(zoneNumber int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, ok := getZNConfig(zoneNumber - 1); ok {
+			if zoneNumber == 1 {
+				return true
+			}
+			if _, _, ok := remoteZoneCache.zoneOff(zoneNumber); ok {
+				return true
+			}
+		}
+		time.Sleep(time.Second)
+	}
+	return false
+}
+
+func logZoneTestState(label string, zoneNumber int) (*TStatZoneConfig, bool) {
+	cfg, ok := getZNConfig(zoneNumber - 1)
+	if !ok {
+		log.Errorf("zoneofftest: unable to read zone %d config for %s", zoneNumber, label)
+		return nil, false
+	}
+
+	log.Infof(
+		"zoneofftest %s zone=%d mode=%s zoneOff=%t hold=%t duration=%d heat=%d cool=%d name=%q",
+		label,
+		zoneNumber,
+		cfg.Mode,
+		cfg.ZoneOff,
+		cfg.Hold != nil && *cfg.Hold,
+		cfg.OvrdDurationMins,
+		cfg.HeatSetpoint,
+		cfg.CoolSetpoint,
+		cfg.ZoneName,
+	)
+	return cfg, true
+}
+
+func setZoneResponseSpoof(zoneNumber int, payload []byte, count int, gap time.Duration) {
+	activeZoneResponseSpoofs.mu.Lock()
+	defer activeZoneResponseSpoofs.mu.Unlock()
+	activeZoneResponseSpoofs.profiles[zoneNumber] = zoneResponseSpoofProfile{
+		payload: append([]byte(nil), payload...),
+		count:   count,
+		gap:     gap,
+	}
+}
+
+func clearZoneResponseSpoof(zoneNumber int) {
+	activeZoneResponseSpoofs.mu.Lock()
+	defer activeZoneResponseSpoofs.mu.Unlock()
+	delete(activeZoneResponseSpoofs.profiles, zoneNumber)
+}
+
+func maybeSpoofZoneResponse(frame *InfinityFrame) {
+	zoneNumber, ok := remoteZoneNumber(frame.src)
+	if !ok || frame.dst != devTSTAT {
+		return
+	}
+	if !bytes.Equal(frame.data[0:3], []byte{0x00, 0x04, 0x1e}) {
+		return
+	}
+
+	activeZoneResponseSpoofs.mu.Lock()
+	profile, ok := activeZoneResponseSpoofs.profiles[zoneNumber]
+	activeZoneResponseSpoofs.mu.Unlock()
+	if !ok {
+		return
+	}
+
+	payload := append([]byte(nil), profile.payload...)
+	if len(payload) != remoteZonePayloadLen || profile.count <= 0 {
+		return
+	}
+	if len(frame.data) >= 3+remoteZonePayloadLen && bytes.Equal(frame.data[3:3+remoteZonePayloadLen], payload) {
+		return
+	}
+
+	go func() {
+		for i := 0; i < profile.count; i++ {
+			log.Debugf("zonespoof: zone=%d spoofing 00041e response step=%d/%d payload=%s", zoneNumber, i+1, profile.count, hex.EncodeToString(payload))
+			infinity.SendAs(frame.src, devTSTAT, opRESPONSE, append([]byte{0x00, 0x04, 0x1e}, payload...))
+			if i+1 < profile.count && profile.gap > 0 {
+				time.Sleep(profile.gap)
+			}
+		}
+	}()
+}
+
+func buildRemoteZoneOffSpoofPayload(zoneNumber int) ([]byte, bool) {
+	snapshot, ok := remoteZoneCache.snapshot(zoneNumber)
+	if !ok || !snapshot.HaveResponse {
+		return nil, false
+	}
+
+	payload := copyRemoteZonePayload(snapshot.ResponsePayload)
+	payload[0] = 0x50
+	payload[1] = 0x04
+	payload[2] = 0x04
+	payload[3] = 0x00
+	payload[4] = 0x00
+	payload[5] = 0x00
+	return payload, true
+}
+
+func runZoneOffDirectTest(zoneNumber int, zoneOff bool, duration time.Duration, pollInterval time.Duration) int {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		log.Errorf("zoneofftest: invalid zone %d", zoneNumber)
+		return 2
+	}
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
+
+	log.Infof("zoneofftest: waiting for zone %d state to become available", zoneNumber)
+	if !waitForZoneTestReady(zoneNumber, 20*time.Second) {
+		log.Errorf("zoneofftest: timed out waiting for zone %d state", zoneNumber)
+		return 1
+	}
+
+	if _, ok := logZoneTestState("before", zoneNumber); !ok {
+		return 1
+	}
+
+	log.Infof("zoneofftest: writing zone %d zoneOff=%t", zoneNumber, zoneOff)
+	if !writeZoneOff(zoneNumber, zoneOff) {
+		log.Errorf("zoneofftest: writeZoneOff failed for zone %d", zoneNumber)
+		return 1
+	}
+
+	deadline := time.Now().Add(duration)
+	for {
+		cfg, ok := logZoneTestState("poll", zoneNumber)
+		if !ok {
+			return 1
+		}
+		if cfg.ZoneOff != zoneOff {
+			log.Errorf("zoneofftest: zone %d snapped back to zoneOff=%t", zoneNumber, cfg.ZoneOff)
+			return 1
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+
+	finalCfg, ok := logZoneTestState("final", zoneNumber)
+	if !ok {
+		return 1
+	}
+	if finalCfg.ZoneOff != zoneOff {
+		log.Errorf("zoneofftest: zone %d snapped back to zoneOff=%t", zoneNumber, finalCfg.ZoneOff)
+		return 1
+	}
+
+	log.Infof("zoneofftest: zone %d remained at zoneOff=%t for %s", zoneNumber, zoneOff, duration)
+	return 0
+}
+
+func runZoneOverrideDurationProbe(zoneNumber int, durationMins uint16, monitor time.Duration, pollInterval time.Duration) int {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		log.Errorf("zoneovrdtest: invalid zone %d", zoneNumber)
+		return 2
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+
+	log.Infof("zoneovrdtest: waiting for zone %d state to become available", zoneNumber)
+	if !waitForZoneTestReady(zoneNumber, 20*time.Second) {
+		log.Errorf("zoneovrdtest: timed out waiting for zone %d state", zoneNumber)
+		return 1
+	}
+
+	if _, ok := logZoneTestState("before-ovrd", zoneNumber); !ok {
+		return 1
+	}
+
+	log.Infof("zoneovrdtest: writing zone %d overrideDurationMins=%d", zoneNumber, durationMins)
+	cur, ok := getZNConfig(zoneNumber - 1)
+	if !ok {
+		log.Errorf("zoneovrdtest: unable to read current zone %d config", zoneNumber)
+		return 1
+	}
+	if !writeZoneOverrideDuration(zoneNumber, durationMins, cur.HeatSetpoint, cur.CoolSetpoint) {
+		log.Errorf("zoneovrdtest: write failed for zone %d duration=%d", zoneNumber, durationMins)
+		return 1
+	}
+
+	deadline := time.Now().Add(monitor)
+	for {
+		if _, ok := logZoneTestState("poll-ovrd", zoneNumber); !ok {
+			return 1
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return 0
+}
+
+func runZonePutDirectTest(zoneNumber int, param string, value string, monitor time.Duration, pollInterval time.Duration) int {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		log.Errorf("zoneputtest: invalid zone %d", zoneNumber)
+		return 2
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+
+	log.Infof("zoneputtest: waiting for zone %d state to become available", zoneNumber)
+	if !waitForZoneTestReady(zoneNumber, 20*time.Second) {
+		log.Errorf("zoneputtest: timed out waiting for zone %d state", zoneNumber)
+		return 1
+	}
+
+	if _, ok := logZoneTestState("before-put", zoneNumber); !ok {
+		return 1
+	}
+
+	log.Infof("zoneputtest: writing zone %d %s=%s", zoneNumber, param, value)
+	if !putConfig(strconv.Itoa(zoneNumber), param, value) {
+		log.Errorf("zoneputtest: write failed for zone %d %s=%s", zoneNumber, param, value)
+		return 1
+	}
+
+	deadline := time.Now().Add(monitor)
+	for {
+		if _, ok := logZoneTestState("poll-put", zoneNumber); !ok {
+			return 1
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return 0
+}
+
+func runZoneRawDirectTest(zoneNumber int, payloadHex string, monitor time.Duration, pollInterval time.Duration) int {
+	if zoneNumber < 2 || zoneNumber > 8 {
+		log.Errorf("zonerawtest: invalid remote zone %d", zoneNumber)
+		return 2
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+
+	payload, ok := parseRemoteZonePayloadHex(payloadHex)
+	if !ok {
+		log.Errorf("zonerawtest: invalid 00041f payload %q", payloadHex)
+		return 2
+	}
+
+	log.Infof("zonerawtest: waiting for zone %d state to become available", zoneNumber)
+	if !waitForZoneTestReady(zoneNumber, 20*time.Second) {
+		log.Errorf("zonerawtest: timed out waiting for zone %d state", zoneNumber)
+		return 1
+	}
+
+	if _, ok := logZoneTestState("before-raw", zoneNumber); !ok {
+		return 1
+	}
+
+	log.Infof("zonerawtest: writing zone %d remote payload=%s", zoneNumber, payloadHex)
+	if !writeRemoteZonePayload(zoneNumber, payload, "rawtest") {
+		log.Errorf("zonerawtest: write failed for zone %d payload=%s", zoneNumber, payloadHex)
+		return 1
+	}
+
+	deadline := time.Now().Add(monitor)
+	for {
+		if _, ok := logZoneTestState("poll-raw", zoneNumber); !ok {
+			return 1
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return 0
+}
+
+func runZoneRawSequenceDirectTest(zoneNumber int, payloadsCSV string, gap time.Duration, monitor time.Duration, pollInterval time.Duration) int {
+	if zoneNumber < 2 || zoneNumber > 8 {
+		log.Errorf("zonerawseq: invalid remote zone %d", zoneNumber)
+		return 2
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+	if gap < 0 {
+		gap = 0
+	}
+
+	payloadHexes := strings.Split(payloadsCSV, ",")
+	if len(payloadHexes) == 0 {
+		log.Errorf("zonerawseq: no payloads provided")
+		return 2
+	}
+
+	payloads := make([][]byte, 0, len(payloadHexes))
+	for _, payloadHex := range payloadHexes {
+		payload, ok := parseRemoteZonePayloadHex(payloadHex)
+		if !ok {
+			log.Errorf("zonerawseq: invalid 00041f payload %q", payloadHex)
+			return 2
+		}
+		payloads = append(payloads, payload)
+	}
+
+	log.Infof("zonerawseq: waiting for zone %d state to become available", zoneNumber)
+	if !waitForZoneTestReady(zoneNumber, 20*time.Second) {
+		log.Errorf("zonerawseq: timed out waiting for zone %d state", zoneNumber)
+		return 1
+	}
+
+	if _, ok := logZoneTestState("before-rawseq", zoneNumber); !ok {
+		return 1
+	}
+
+	for i, payload := range payloads {
+		reason := fmt.Sprintf("rawseq-%d/%d", i+1, len(payloads))
+		log.Infof("zonerawseq: writing zone %d step=%d payload=%s", zoneNumber, i+1, payloadHexes[i])
+		if !writeRemoteZonePayload(zoneNumber, payload, reason) {
+			log.Errorf("zonerawseq: write failed for zone %d step=%d payload=%s", zoneNumber, i+1, payloadHexes[i])
+			return 1
+		}
+		if i+1 < len(payloads) && gap > 0 {
+			time.Sleep(gap)
+		}
+	}
+
+	deadline := time.Now().Add(monitor)
+	for {
+		if _, ok := logZoneTestState("poll-rawseq", zoneNumber); !ok {
+			return 1
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return 0
+}
+
+func runZoneStepsDirectTest(zoneNumber int, stepsCSV string, gap time.Duration, monitor time.Duration, pollInterval time.Duration) int {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		log.Errorf("zonesteps: invalid zone %d", zoneNumber)
+		return 2
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+	if gap < 0 {
+		gap = 0
+	}
+
+	steps := strings.Split(stepsCSV, ",")
+	if len(steps) == 0 {
+		log.Errorf("zonesteps: no steps provided")
+		return 2
+	}
+
+	log.Infof("zonesteps: waiting for zone %d state to become available", zoneNumber)
+	if !waitForZoneTestReady(zoneNumber, 20*time.Second) {
+		log.Errorf("zonesteps: timed out waiting for zone %d state", zoneNumber)
+		return 1
+	}
+
+	if _, ok := logZoneTestState("before-steps", zoneNumber); !ok {
+		return 1
+	}
+
+	for i, step := range steps {
+		step = strings.TrimSpace(step)
+		switch {
+		case strings.HasPrefix(step, "put:"):
+			spec := strings.TrimPrefix(step, "put:")
+			parts := strings.SplitN(spec, "=", 2)
+			if len(parts) != 2 {
+				log.Errorf("zonesteps: invalid put step %q", step)
+				return 2
+			}
+			log.Infof("zonesteps: step=%d put %s=%s", i+1, parts[0], parts[1])
+			if !putConfig(strconv.Itoa(zoneNumber), parts[0], parts[1]) {
+				log.Errorf("zonesteps: put failed at step=%d %s=%s", i+1, parts[0], parts[1])
+				return 1
+			}
+		case strings.HasPrefix(step, "raw:"):
+			payloadHex := strings.TrimPrefix(step, "raw:")
+			payload, ok := parseRemoteZonePayloadHex(payloadHex)
+			if !ok {
+				log.Errorf("zonesteps: invalid raw step payload %q", payloadHex)
+				return 2
+			}
+			log.Infof("zonesteps: step=%d raw payload=%s", i+1, payloadHex)
+			if !writeRemoteZonePayload(zoneNumber, payload, fmt.Sprintf("steps-%d", i+1)) {
+				log.Errorf("zonesteps: raw write failed at step=%d payload=%s", i+1, payloadHex)
+				return 1
+			}
+		default:
+			log.Errorf("zonesteps: unsupported step %q", step)
+			return 2
+		}
+		if i+1 < len(steps) && gap > 0 {
+			time.Sleep(gap)
+		}
+	}
+
+	deadline := time.Now().Add(monitor)
+	for {
+		if _, ok := logZoneTestState("poll-steps", zoneNumber); !ok {
+			return 1
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return 0
+}
+
+func runZoneSpoofDirectTest(zoneNumber int, responsePayloadHex string, spoofCount int, spoofGap time.Duration, monitor time.Duration, pollInterval time.Duration) int {
+	if zoneNumber < 2 || zoneNumber > 8 {
+		log.Errorf("zonespooftest: invalid remote zone %d", zoneNumber)
+		return 2
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+	if spoofCount <= 0 {
+		spoofCount = 1
+	}
+
+	payload, ok := parseRemoteZonePayloadHex(responsePayloadHex)
+	if !ok {
+		log.Errorf("zonespooftest: invalid 00041e payload %q", responsePayloadHex)
+		return 2
+	}
+
+	log.Infof("zonespooftest: waiting for zone %d state to become available", zoneNumber)
+	if !waitForZoneTestReady(zoneNumber, 20*time.Second) {
+		log.Errorf("zonespooftest: timed out waiting for zone %d state", zoneNumber)
+		return 1
+	}
+
+	if _, ok := logZoneTestState("before-spoof", zoneNumber); !ok {
+		return 1
+	}
+
+	setZoneResponseSpoof(zoneNumber, payload, spoofCount, spoofGap)
+	defer clearZoneResponseSpoof(zoneNumber)
+
+	log.Infof("zonespooftest: writing zone %d zoneOff=true and arming spoof payload=%s count=%d gap=%s", zoneNumber, responsePayloadHex, spoofCount, spoofGap)
+	if !writeZoneOff(zoneNumber, true) {
+		log.Errorf("zonespooftest: writeZoneOff failed for zone %d", zoneNumber)
+		return 1
+	}
+
+	deadline := time.Now().Add(monitor)
+	for {
+		cfg, ok := logZoneTestState("poll-spoof", zoneNumber)
+		if !ok {
+			return 1
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		if !cfg.ZoneOff {
+			log.Errorf("zonespooftest: zone %d snapped back to zoneOff=%t", zoneNumber, cfg.ZoneOff)
+			return 1
+		}
+		time.Sleep(pollInterval)
+	}
+
+	finalCfg, ok := logZoneTestState("final-spoof", zoneNumber)
+	if !ok {
+		return 1
+	}
+	if !finalCfg.ZoneOff {
+		log.Errorf("zonespooftest: zone %d snapped back to zoneOff=%t", zoneNumber, finalCfg.ZoneOff)
+		return 1
+	}
+	log.Infof("zonespooftest: zone %d remained at zoneOff=true for %s", zoneNumber, monitor)
+	return 0
 }
 
 // write a change to a single parameter of a vacation setting
@@ -604,6 +1464,7 @@ func statePoller(monArray []uint16) {
 				mqttCache.update(zp+"/heatSetpoint", c1.Zones[zi].HeatSetpoint)
 				mqttCache.update(zp+"/targetHumidity", c1.Zones[zi].TargetHumidity)
 				mqttCache.update(zp+"/fanMode", c1.Zones[zi].FanMode)
+				mqttCache.update(zp+"/mode", c1.Zones[zi].Mode)
 				mqttCache.update(zp+"/hold", *c1.Zones[zi].Hold)
 				mqttCache.update(zp+"/overrideActive", c1.Zones[zi].OverrideActive)
 				mqttCache.update(zp+"/overrideDurationMins", c1.Zones[zi].OvrdDurationMins)
@@ -654,7 +1515,6 @@ func statePoller(monArray []uint16) {
 			mqttCache.update(pf+"/vacation/fanMode", *c2.FanMode)
 		}
 
-
 		// things to poll less-often
 		if c1ok && cyc_i == 0 {
 			c3, c3ok := getTstatTemps()
@@ -688,6 +1548,19 @@ func statsPoller() {
 }
 
 func attachSnoops() {
+	infinity.snoopResponse(0x2201, 0x2801, func(frame *InfinityFrame) {
+		if bytes.Equal(frame.data[0:3], []byte{0x00, 0x04, 0x1e}) {
+			remoteZoneCache.rememberResponse(frame.src, frame.data[3:])
+			maybeSpoofZoneResponse(frame)
+		}
+	})
+
+	infinity.snoopWrite(devTSTAT, devTSTAT, func(frame *InfinityFrame) {
+		if bytes.Equal(frame.data[0:3], []byte{0x00, 0x04, 0x1f}) {
+			remoteZoneCache.rememberWrite(frame.dst, frame.data[3:], "thermostat")
+		}
+	})
+
 	// Snoop Heat Pump responses
 	infinity.snoopResponse(0x5000, 0x51ff, func(frame *InfinityFrame) {
 		data := frame.data[3:]
@@ -849,6 +1722,41 @@ func main() {
 	httpPort := flag.Int("httpport", 8080, "HTTP port to listen on")
 	serialPort := flag.String("serial", "", "path to serial port")
 	mqttBrokerUrl := flag.String("mqtt", "", "url for mqtt broker")
+	var busCapturePath busCaptureFlag
+	flag.Var(&busCapturePath, "buscap", "capture decoded bus traffic to a JSONL file")
+	zoneOffTestZone := flag.Int("zoneofftest", 0, "direct bus test mode: zone number to toggle and monitor without HTTP")
+	zoneOffTestState := flag.String("zoneoffteststate", "off", "direct bus test mode target state: off or on")
+	zoneOffTestDuration := flag.Duration("zoneofftestduration", time.Minute, "direct bus test mode monitor duration")
+	zoneOffTestPoll := flag.Duration("zoneofftestpoll", 5*time.Second, "direct bus test mode poll interval")
+	zoneOvrdTestZone := flag.Int("zoneovrdtest", 0, "direct bus test mode: zone number to probe override duration writes")
+	zoneOvrdTestMins := flag.Uint("zoneovrdmins", 0, "direct bus test mode: override duration value to write")
+	zoneOvrdTestDuration := flag.Duration("zoneovrdtestduration", 15*time.Second, "direct bus test mode monitor duration")
+	zoneOvrdTestPoll := flag.Duration("zoneovrdtestpoll", 2*time.Second, "direct bus test mode poll interval")
+	zonePutTestZone := flag.Int("zoneputtest", 0, "direct bus test mode: zone number for a single config write")
+	zonePutTestParam := flag.String("zoneputparam", "", "direct bus test mode: zone config parameter name")
+	zonePutTestValue := flag.String("zoneputvalue", "", "direct bus test mode: zone config parameter value")
+	zonePutTestDuration := flag.Duration("zoneputtestduration", 10*time.Second, "direct bus test mode monitor duration")
+	zonePutTestPoll := flag.Duration("zoneputtestpoll", 2*time.Second, "direct bus test mode poll interval")
+	zoneRawTestZone := flag.Int("zonerawtest", 0, "direct bus test mode: remote zone number for a raw 00041f write")
+	zoneRawTestPayload := flag.String("zonerawpayload", "", "direct bus test mode: 20-byte remote 00041f payload as 40 hex chars")
+	zoneRawTestDuration := flag.Duration("zonerawtestduration", 10*time.Second, "direct bus test mode monitor duration")
+	zoneRawTestPoll := flag.Duration("zonerawtestpoll", 2*time.Second, "direct bus test mode poll interval")
+	zoneRawSeqZone := flag.Int("zonerawseq", 0, "direct bus test mode: remote zone number for a raw 00041f sequence")
+	zoneRawSeqPayloads := flag.String("zonerawseqpayloads", "", "direct bus test mode: comma-separated 20-byte remote 00041f payloads as 40 hex chars each")
+	zoneRawSeqGap := flag.Duration("zonerawseqgap", 200*time.Millisecond, "direct bus test mode: delay between raw sequence writes")
+	zoneRawSeqDuration := flag.Duration("zonerawseqduration", 10*time.Second, "direct bus test mode monitor duration")
+	zoneRawSeqPoll := flag.Duration("zonerawseqpoll", 2*time.Second, "direct bus test mode poll interval")
+	zoneStepsZone := flag.Int("zonesteps", 0, "direct bus test mode: zone number for a mixed put/raw step sequence")
+	zoneStepsSpec := flag.String("zonestepsspec", "", "direct bus test mode: comma-separated steps like put:coolSetpoint=89,raw:<40hex>")
+	zoneStepsGap := flag.Duration("zonestepsgap", 250*time.Millisecond, "direct bus test mode: delay between mixed steps")
+	zoneStepsDuration := flag.Duration("zonestepsduration", 10*time.Second, "direct bus test mode monitor duration")
+	zoneStepsPoll := flag.Duration("zonestepspoll", 2*time.Second, "direct bus test mode poll interval")
+	zoneSpoofTestZone := flag.Int("zonespooftest", 0, "direct bus test mode: remote zone number to disable while spoofing 00041e responses")
+	zoneSpoofPayload := flag.String("zonespoofpayload", "", "direct bus test mode: spoofed remote 00041e payload as 40 hex chars")
+	zoneSpoofCount := flag.Int("zonespoofcount", 3, "direct bus test mode: spoof repeats after each real 00041e response")
+	zoneSpoofGap := flag.Duration("zonespoofgap", 20*time.Millisecond, "direct bus test mode: gap between spoofed 00041e responses")
+	zoneSpoofDuration := flag.Duration("zonespooftestduration", 20*time.Second, "direct bus test mode monitor duration")
+	zoneSpoofPoll := flag.Duration("zonespooftestpoll", 2*time.Second, "direct bus test mode poll interval")
 	ductCap := flag.String("ductCap", "12,11,11,11,11,11,11,11,11", "duct capacities as comma-separated values for leakage,z1,...,zN")
 	instance := flag.String("instance", "infinitive", "unique system instance name")
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
@@ -890,6 +1798,22 @@ func main() {
 			panic("unable to open resp log file")
 		}
 		defer RLogger.Close()
+	}
+
+	if (*zoneOffTestZone > 0 || *zoneOvrdTestZone > 0 || *zonePutTestZone > 0 || *zoneRawTestZone > 0 || *zoneRawSeqZone > 0 || *zoneStepsZone > 0 || *zoneSpoofTestZone > 0) && !busCapturePath.enabled {
+		busCapturePath.enabled = true
+		busCapturePath.auto = true
+	}
+
+	if busCapturePath.enabled {
+		path := busCapturePath.path
+		if busCapturePath.auto {
+			path = autoCapturePath()
+		}
+		if !busCapture.Open(path) {
+			panic("unable to open bus capture file")
+		}
+		defer busCapture.Close()
 	}
 
 	infinity = &InfinityProtocol{device: *serialPort}
@@ -957,6 +1881,63 @@ func main() {
 	err := infinity.Open()
 	if err != nil {
 		log.Panicf("error opening serial port: %s", err.Error())
+	}
+
+	if *zoneOffTestZone > 0 {
+		go statePoller(rawMonTable)
+		switch *zoneOffTestState {
+		case "off":
+			os.Exit(runZoneOffDirectTest(*zoneOffTestZone, true, *zoneOffTestDuration, *zoneOffTestPoll))
+		case "on":
+			os.Exit(runZoneOffDirectTest(*zoneOffTestZone, false, *zoneOffTestDuration, *zoneOffTestPoll))
+		default:
+			log.Panicf("invalid zoneoffteststate %q", *zoneOffTestState)
+		}
+	}
+
+	if *zoneOvrdTestZone > 0 {
+		go statePoller(rawMonTable)
+		os.Exit(runZoneOverrideDurationProbe(*zoneOvrdTestZone, uint16(*zoneOvrdTestMins), *zoneOvrdTestDuration, *zoneOvrdTestPoll))
+	}
+
+	if *zonePutTestZone > 0 {
+		if *zonePutTestParam == "" {
+			log.Panicf("zoneputparam is required when using -zoneputtest")
+		}
+		go statePoller(rawMonTable)
+		os.Exit(runZonePutDirectTest(*zonePutTestZone, *zonePutTestParam, *zonePutTestValue, *zonePutTestDuration, *zonePutTestPoll))
+	}
+
+	if *zoneRawTestZone > 0 {
+		if *zoneRawTestPayload == "" {
+			log.Panicf("zonerawpayload is required when using -zonerawtest")
+		}
+		go statePoller(rawMonTable)
+		os.Exit(runZoneRawDirectTest(*zoneRawTestZone, *zoneRawTestPayload, *zoneRawTestDuration, *zoneRawTestPoll))
+	}
+
+	if *zoneRawSeqZone > 0 {
+		if *zoneRawSeqPayloads == "" {
+			log.Panicf("zonerawseqpayloads is required when using -zonerawseq")
+		}
+		go statePoller(rawMonTable)
+		os.Exit(runZoneRawSequenceDirectTest(*zoneRawSeqZone, *zoneRawSeqPayloads, *zoneRawSeqGap, *zoneRawSeqDuration, *zoneRawSeqPoll))
+	}
+
+	if *zoneStepsZone > 0 {
+		if *zoneStepsSpec == "" {
+			log.Panicf("zonestepsspec is required when using -zonesteps")
+		}
+		go statePoller(rawMonTable)
+		os.Exit(runZoneStepsDirectTest(*zoneStepsZone, *zoneStepsSpec, *zoneStepsGap, *zoneStepsDuration, *zoneStepsPoll))
+	}
+
+	if *zoneSpoofTestZone > 0 {
+		if *zoneSpoofPayload == "" {
+			log.Panicf("zonespoofpayload is required when using -zonespooftest")
+		}
+		go statePoller(rawMonTable)
+		os.Exit(runZoneSpoofDirectTest(*zoneSpoofTestZone, *zoneSpoofPayload, *zoneSpoofCount, *zoneSpoofGap, *zoneSpoofDuration, *zoneSpoofPoll))
 	}
 
 	if mqttBrokerUrl != nil {

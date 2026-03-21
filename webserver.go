@@ -47,6 +47,11 @@ func webserver(port int) {
 		zn, err := strconv.Atoi(c.Param("zn"))
 
 		if  err != nil {
+		} else if zn == 0 {
+			cfgZ0, ok := getZonesConfig()
+			if ok {
+				c.JSON(200, cfgZ0)
+			}
 		} else if zn > 0 && zn <= 8 {
 			cfgZN, ok := getZNConfig(zn - 1)
 			if ok {
@@ -113,16 +118,29 @@ func webserver(port int) {
 
 		if reqBody, berr := c.GetRawData(); berr != nil || json.Unmarshal(reqBody, &args) != nil || json.Unmarshal(reqBody, &reqArgs) != nil {
 			log.Printf("bind failed")
-		} else if err != nil || zn < 1 || zn > 8 {
+		} else if err != nil || zn < 0 || zn > 8 {
 			log.Printf("invalid zone numner")
 		} else if _, bad := reqArgs["overrideActive"]; bad {
 			c.AbortWithError(400, errors.New("overrideActive is read-only"))
 			return
+		} else if zn == 0 {
+			if len(args.Mode) > 0 {
+				_ = putConfig("0", "mode", args.Mode)
+			}
 		} else {
 			params := TStatZoneParams{}
 			flags := uint16(0)
 			zi := zn - 1
 			_, overrideReq := reqArgs["overrideDurationMins"]
+			_, zoneOffReq := reqArgs["zoneOff"]
+			zoneOff := false
+
+			if zoneOffReq {
+				if err := json.Unmarshal(reqArgs["zoneOff"], &zoneOff); err != nil {
+					log.Printf("invalid zoneOff value")
+					return
+				}
+			}
 
 			if len(args.FanMode) > 0 {
 				mode, ok := stringFanModeToRaw(args.FanMode)
@@ -178,10 +196,10 @@ func webserver(port int) {
 				infinity.WriteTableZ(devTSTAT, params, uint8(zi), flags)
 			}
 
-			if len(args.Mode) > 0 {
-				m, _ := stringModeToRaw(args.Mode)
-				p := TStatCurrentParams{Mode: m}
-				infinity.WriteTable(devTSTAT, p, 0x10)
+			if zoneOffReq {
+				_ = putConfig(strconv.Itoa(zn), "zoneOff", strconv.FormatBool(zoneOff))
+			} else if len(args.Mode) > 0 {
+				_ = putConfig(strconv.Itoa(zn), "mode", args.Mode)
 			}
 		}
 	})
