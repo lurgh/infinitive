@@ -133,8 +133,8 @@ func  mqttMessageHandler(client mqtt.Client, msg mqtt.Message) {
 		log.Errorf("mqtt received unexpected topic '%s'", msg.Topic())
 	} else if len(ts) == 5 && ts[1] == "zone" {
 		// zone-based
-		if ps[len(ps)-2:len(ps)-1] == "." {
-			ps = ps[0:len(ps)-2]
+		if strings.HasSuffix(ps, ".0") {
+			ps = ps[:len(ps)-2]
 		}
 		_ = putConfig(ts[2], ts[3], ps)
 	} else if len(ts) == 4 && ts[1] == "vacation" {

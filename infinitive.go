@@ -252,20 +252,43 @@ func putConfig(zone string, param string, value string) bool {
 				flags |= 0x04
 			}
 		case "overrideDurationMins":
-			if val, err := strconv.ParseUint(value, 10, 16); err != nil {
+			base := uint16(0)
+			if len(value) == 0 {
 				log.Errorf("putConfig: invalid overrideDurationMins value '%s' for zone %d", value, zn)
 				return false
-			} else if val > maxOverrideDurationMins {
-				log.Infof("putConfig: clamping overrideDurationMins from %d to %d for zone %d", val, maxOverrideDurationMins, zn)
-				val = maxOverrideDurationMins
-			} else if cur, ok := getZNConfig(zi); !ok {
-				log.Errorf("putConfig: unable to read current zone config for overrideDurationMins write, zone %d", zn)
-				return false
-			} else if !writeZoneOverrideDuration(zn, uint16(val), cur.HeatSetpoint, cur.CoolSetpoint) {
-				log.Errorf("putConfig: failed to write overrideDurationMins=%d for zone %d", val, zn)
+			}
+			if value[0] == '+' || value[0] == '-' {
+				if cur, ok := getZNConfig(zi); !ok {
+					log.Errorf("putConfig: unable to read current zone config for relative overrideDurationMins write, zone %d", zn)
+					return false
+				} else {
+					base = cur.OvrdDurationMins
+				}
+			}
+			if val, err := strconv.ParseInt(value, 10, 32); err != nil {
+				log.Errorf("putConfig: invalid overrideDurationMins value '%s' for zone %d", value, zn)
 				return false
 			} else {
-				return true
+				val += int64(base)
+				if val < 0 {
+					val = 0
+				} else if val > maxOverrideDurationMins {
+					log.Infof("putConfig: clamping overrideDurationMins from %d to %d for zone %d", val, maxOverrideDurationMins, zn)
+					val = maxOverrideDurationMins
+				}
+				if val == 0 {
+					flags |= 0x02
+					break
+				}
+				if cur, ok := getZNConfig(zi); !ok {
+					log.Errorf("putConfig: unable to read current zone config for overrideDurationMins write, zone %d", zn)
+					return false
+				} else if !writeZoneOverrideDuration(zn, uint16(val), cur.HeatSetpoint, cur.CoolSetpoint) {
+					log.Errorf("putConfig: failed to write overrideDurationMins=%d for zone %d", val, zn)
+					return false
+				} else {
+					return true
+				}
 			}
 		case "hold":	// dedicated 'hold' semantics
 			var val bool
