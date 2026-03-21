@@ -1,6 +1,7 @@
 console.log("loaded app.js");
 
 var app = angular.module('thermostatApp', ['ngWebSocket']);
+var maxOverrideDurationMins = 2184;
 
 /*
 app.factory('thermostatEvents', function($websocket) {
@@ -107,9 +108,9 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
       }
       var roundedUp = Math.ceil(current / step) * step;
       if (roundedUp === current) {
-        return current + step;
+        return Math.min(current + step, maxOverrideDurationMins);
       }
-      return roundedUp;
+      return Math.min(roundedUp, maxOverrideDurationMins);
     }
 
     if (delta < 0) {

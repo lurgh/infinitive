@@ -86,6 +86,8 @@ var instanceName string
 //  we default to false to maintain backward compatibility
 var showDrying bool = false
 
+const maxOverrideDurationMins = 2184
+
 func holdTime(ht uint16) string {
 	if ht == 0 {
 		return ""
@@ -98,6 +100,9 @@ func holdTime(ht uint16) string {
 func writeZoneOverrideDuration(zoneNumber int, durationMins uint16, heatSetpoint uint8, coolSetpoint uint8) bool {
 	if zoneNumber < 1 || zoneNumber > 8 {
 		return false
+	}
+	if durationMins > maxOverrideDurationMins {
+		durationMins = maxOverrideDurationMins
 	}
 
 	zi := zoneNumber - 1
@@ -250,6 +255,9 @@ func putConfig(zone string, param string, value string) bool {
 			if val, err := strconv.ParseUint(value, 10, 16); err != nil {
 				log.Errorf("putConfig: invalid overrideDurationMins value '%s' for zone %d", value, zn)
 				return false
+			} else if val > maxOverrideDurationMins {
+				log.Infof("putConfig: clamping overrideDurationMins from %d to %d for zone %d", val, maxOverrideDurationMins, zn)
+				val = maxOverrideDurationMins
 			} else if cur, ok := getZNConfig(zi); !ok {
 				log.Errorf("putConfig: unable to read current zone config for overrideDurationMins write, zone %d", zn)
 				return false
