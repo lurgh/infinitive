@@ -351,6 +351,62 @@ func rewriteRemoteZoneSetpoints(zoneNumber int) bool {
 	return true
 }
 
+// clearZoneHold explicitly writes the ZoneHold field false for a single zone.
+//
+// This matters because writing overrideDuration=0 is a no-op on the bus for
+// these thermostats. An explicit 003b03 write with flag 0x02 reliably clears
+// the thermostat's internal "temporary override active" state, even when the
+// read-side Hold bit already appears false in the API.
+func clearZoneHold(zoneNumber int) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	zi := zoneNumber - 1
+	params := TStatZoneParams{}
+	log.Infof("clearZoneHold: zone %d clearing hold bit via 003b03", zoneNumber)
+	return infinity.WriteTableZ(devTSTAT, params, uint8(zi), 0x02)
+}
+
+// writeRemoteZoneSetpointWhileOff handles the common user action of changing a
+// remote zone's heat/cool setpoint while that zone is OFF.
+//
+// On the physical remote thermostat, pressing temp +/- while the zone is OFF
+// implicitly re-enables the zone. On the bus, that means we must first stop
+// spoofing OFF 00041e responses, then write the requested setpoint, then clear
+// ZoneHold to remove the thermostat's automatic temporary override timer.
+func writeRemoteZoneSetpointWhileOff(zoneNumber int, flag uint16, value uint8) bool {
+	if zoneNumber <= 1 || zoneNumber > 8 {
+		return false
+	}
+
+	zi := zoneNumber - 1
+	clearZoneResponseSpoof(zoneNumber)
+
+	params := TStatZoneParams{}
+	switch flag {
+	case 0x04:
+		params.ZHeatSetpoint[zi] = value
+	case 0x08:
+		params.ZCoolSetpoint[zi] = value
+	default:
+		log.Errorf("writeRemoteZoneSetpointWhileOff: unsupported flag 0x%x for zone %d", flag, zoneNumber)
+		return false
+	}
+
+	log.Infof("writeRemoteZoneSetpointWhileOff: zone %d setpoint write while OFF flag=0x%x value=%d", zoneNumber, flag, value)
+	if !infinity.WriteTableZ(devTSTAT, params, uint8(zi), flag) {
+		log.Errorf("writeRemoteZoneSetpointWhileOff: failed setpoint write for zone %d", zoneNumber)
+		return false
+	}
+
+	if !clearZoneHold(zoneNumber) {
+		log.Warnf("writeRemoteZoneSetpointWhileOff: zone %d setpoint write enabled zone but failed to clear hold", zoneNumber)
+	}
+
+	return true
+}
+
 func writeZoneOverrideDurationOnly(zoneNumber int, durationMins uint16) bool {
 	if zoneNumber < 1 || zoneNumber > 8 {
 		return false
@@ -428,12 +484,41 @@ func writeZoneOff(zoneNumber int, zoneOff bool) bool {
 		return true
 	}
 
+	// Re-enabling a remote zone is intentionally a two-step thermostat-side
+	// sequence:
+	//
+	//  1. Rewrite the currently scheduled setpoints back into 003b03.
+	//     That causes the master thermostat to adopt the zone as enabled again
+	//     and emit the matching 00041f ON payload to the remote zone stat.
+	//
+	//  2. Immediately clear ZoneHold with a dedicated 0x02 write.
+	//     Without this second step, the thermostat keeps a 2-hour temporary
+	//     override active as a side effect of the setpoint rewrite.
+	//
+	// We have not found a single bus command that reproduces the desired
+	// "zone on, following schedule, no override timer" end state in one shot.
+	// On the physical remote thermostat, the equivalent user flow is also
+	// two-step:
+	//
+	//  1. Press temp + or temp - to re-enable the zone.
+	//  2. Press hold - repeatedly to drive the override duration back to zero.
+	//
+	// This software path mirrors that observed behavior at the bus level.
+	log.Infof("writeZoneOff: zone %d enabling via thermostat setpoint rewrite followed by hold clear", zoneNumber)
+	if rewriteRemoteZoneSetpoints(zoneNumber) {
+		if !clearZoneHold(zoneNumber) {
+			log.Warnf("writeZoneOff: zone %d enabled but failed to clear hold after thermostat setpoint rewrite", zoneNumber)
+		}
+		return true
+	}
+
 	if payload, reason, ok := remoteZoneCache.onPayload(zoneNumber); ok {
+		log.Warnf("writeZoneOff: zone %d thermostat setpoint rewrite failed, falling back to cached ON payload", zoneNumber)
 		return writeRemoteZonePayload(zoneNumber, payload, "enablebit/"+reason)
 	}
 
-	log.Warnf("writeZoneOff: zone %d enable requested without cached ON payload, falling back to thermostat setpoint rewrite", zoneNumber)
-	return rewriteRemoteZoneSetpoints(zoneNumber)
+	log.Errorf("writeZoneOff: zone %d unable to enable via thermostat setpoint rewrite or cached ON payload", zoneNumber)
+	return false
 }
 
 func writeZoneMode(zoneNumber int, mode string) bool {
@@ -620,6 +705,7 @@ func putConfig(zone string, param string, value string) bool {
 
 	// zone parameters
 	if (zn >= 1 && zn <= 8) {
+		log.Infof("putConfig: request zone %d %s=%s", zn, param, value)
 		switch param {
 		case "fanMode":
 			if mode, ok := stringFanModeToRaw(value); !ok {
@@ -634,6 +720,11 @@ func putConfig(zone string, param string, value string) bool {
 				log.Errorf("putConfig: invalid cool setpoint value '%s' for zone %d", value, zn)
 				return false
 			} else {
+				if zn > 1 {
+					if zoneOff, _, ok := remoteZoneCache.zoneOff(zn); ok && zoneOff {
+						return writeRemoteZoneSetpointWhileOff(zn, 0x08, uint8(val))
+					}
+				}
 				params.ZCoolSetpoint[zi] = uint8(val)
 				flags |= 0x08
 			}
@@ -642,6 +733,11 @@ func putConfig(zone string, param string, value string) bool {
 				log.Errorf("putConfig: invalid heat setpoint value '%s' for zone %d", value, zn)
 				return false
 			} else {
+				if zn > 1 {
+					if zoneOff, _, ok := remoteZoneCache.zoneOff(zn); ok && zoneOff {
+						return writeRemoteZoneSetpointWhileOff(zn, 0x04, uint8(val))
+					}
+				}
 				params.ZHeatSetpoint[zi] = uint8(val)
 				flags |= 0x04
 			}
@@ -732,12 +828,13 @@ func putConfig(zone string, param string, value string) bool {
 		}
 
 		if flags != 0 {
-			log.Infof("calling WriteTableZ with flags: %d, 0x%x", zi, flags)
+			log.Infof("putConfig: zone %d submitting 003b03 write for %s=%s with flags=0x%x", zn, param, value, flags)
 			infinity.WriteTableZ(devTSTAT, params, uint8(zi), flags)
 		}
 
 		return true
 	} else if zn == 0 {
+		log.Infof("putConfig: request global %s=%s", param, value)
 		switch param {
 		case "mode":
 			return writeGlobalMode(value)

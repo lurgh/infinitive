@@ -700,6 +700,19 @@ The MQTT API has global and per-zone data as documented above.  The websocket AP
 
 There is some cleverness wired into infinitive which calculates per-zone airflow fractions when the fan is running.  Currently this is published only through the MQTT API.
 
+Physical remote zone thermostats also have edge-triggered "zone off" behavior that is not mirrored by the Infinitive APIs.  On the physical thermostat,
+setting cooling to 91°F or heating to 39°F disables the zone instead of storing those values as stable setpoints.  Infinitive's backend APIs do not
+translate those threshold values into `zoneOff=true`; they send the corresponding setpoint write on the bus, and the thermostat then snaps the value
+back to its real maximum/minimum setpoint.  The web GUI behaves the same way because it calls the backend APIs rather than emulating the physical
+thermostat's "one step past the limit means off" UI behavior.
+
+This threshold behavior is documented in an older Carrier Comfort Zone II owner's guide mirror, which describes turning a zone off by pressing below
+40°F in heating mode or above 90°F in cooling mode:
+https://manualzilla.com/doc/7063011/carrier-zonecc2kit01-b-owner-s-manual
+
+We have not found current Carrier Infinity documentation that explicitly mentions these 40/90 threshold values, even though the observed behavior on
+Infinity zone thermostats appears to match the older Comfort Zone documentation.
+
 ##### Airflow Weights Per Zone
 
 Infinitive can calculate the airflow going to each zone based on the zone damper states, but to do so

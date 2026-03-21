@@ -79,6 +79,18 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
     });
   }
 
+  $scope.setZoneMode = function(zone, mode) {
+    $http.put("/api/zone/" + zone + "/config", { "mode": mode }).then(function(response) {
+      console.log("set zone " + zone + " mode to " + mode) ;
+    });
+  }
+
+  $scope.setZoneOff = function(zone, zoneOff) {
+    $http.put("/api/zone/" + zone + "/config", { "zoneOff": zoneOff }).then(function(response) {
+      console.log("set zone " + zone + " zoneOff to " + zoneOff) ;
+    });
+  }
+
   $scope.setHold = function(zone,hold) {
     $http.put("/api/zone/" + zone + "/config", { "hold": hold }).then(function(response) {
       console.log("set hold zone " + zone + " to " + hold) ;

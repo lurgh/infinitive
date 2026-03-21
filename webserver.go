@@ -161,14 +161,24 @@ func webserver(port int) {
 				flags |= 0x02
 			}
 
+			zoneCfg, haveZoneCfg := getZNConfig(zi)
+
 			if args.HeatSetpoint > 0 && !overrideReq {
-				params.ZHeatSetpoint[zi] = args.HeatSetpoint
-				flags |= 0x04
+				if haveZoneCfg && zn > 1 && zoneCfg.ZoneOff {
+					_ = putConfig(strconv.Itoa(zn), "heatSetpoint", strconv.Itoa(int(args.HeatSetpoint)))
+				} else {
+					params.ZHeatSetpoint[zi] = args.HeatSetpoint
+					flags |= 0x04
+				}
 			}
 
 			if args.CoolSetpoint > 0 && !overrideReq {
-				params.ZCoolSetpoint[zi] = args.CoolSetpoint
-				flags |= 0x08
+				if haveZoneCfg && zn > 1 && zoneCfg.ZoneOff {
+					_ = putConfig(strconv.Itoa(zn), "coolSetpoint", strconv.Itoa(int(args.CoolSetpoint)))
+				} else {
+					params.ZCoolSetpoint[zi] = args.CoolSetpoint
+					flags |= 0x08
+				}
 			}
 
 			if overrideReq {
@@ -192,7 +202,7 @@ func webserver(port int) {
 			}
 
 			if flags != 0 {
-				log.Printf("calling WriteTableZ with flags: %d, 0x%x", zi, flags)
+				log.Printf("submitting direct zone write zone=%d flags=0x%x", zn, flags)
 				infinity.WriteTableZ(devTSTAT, params, uint8(zi), flags)
 			}
 
