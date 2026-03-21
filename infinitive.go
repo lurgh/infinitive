@@ -1465,6 +1465,7 @@ func statePoller(monArray []uint16) {
 				mqttCache.update(zp+"/targetHumidity", c1.Zones[zi].TargetHumidity)
 				mqttCache.update(zp+"/fanMode", c1.Zones[zi].FanMode)
 				mqttCache.update(zp+"/mode", c1.Zones[zi].Mode)
+				mqttCache.update(zp+"/zoneOff", c1.Zones[zi].ZoneOff)
 				mqttCache.update(zp+"/hold", *c1.Zones[zi].Hold)
 				mqttCache.update(zp+"/overrideActive", c1.Zones[zi].OverrideActive)
 				mqttCache.update(zp+"/overrideDurationMins", c1.Zones[zi].OvrdDurationMins)

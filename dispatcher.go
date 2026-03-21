@@ -47,6 +47,18 @@ type discoveryTopicNumber struct {
 	Avail        string `json:"availability_topic,omitempty"`
 }
 
+type discoveryTopicSwitch struct {
+	StateTopic   string `json:"state_topic"`
+	CommandTopic string `json:"command_topic"`
+	Name         string `json:"name"`
+	PayloadOn    string `json:"payload_on"`
+	PayloadOff   string `json:"payload_off"`
+	StateOn      string `json:"state_on"`
+	StateOff     string `json:"state_off"`
+	Unique_id    string `json:"unique_id"`
+	Avail        string `json:"availability_topic,omitempty"`
+}
+
 type EventDispatcher struct {
 	listeners  map[*EventListener]bool
 	broadcast  chan []byte
@@ -356,6 +368,9 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 	numbers := []discoveryTopicNumber {
 		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[4]s/zone/%[2]d/overrideDurationMins/set", "%[1]s Set override duration", "box", 0, 2184, 15, "min", "hvac-numbers-z%[2]d-sodur", a},
 	}
+	switches := []discoveryTopicSwitch {
+		{ "%[4]s/zone/%[2]d/zoneOff", "%[4]s/zone/%[2]d/zoneOff/set", "%[1]s Disabled", "true", "false", "true", "false", "hvac-switches-z%[2]d-zoff", a},
+	}
 	tempu := "F"
 	if tu > 0 { tempu = "C" }
 	duid := fmt.Sprintf("climate-zone-%d", zi+1)
@@ -405,6 +420,23 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 		log.Infof("MQTT ZONE NUMBER DISC: %v", j)
 		if err == nil {
 			_ = mqttClient.Publish("homeassistant/number/infinitive/" + v.Unique_id + "/config", 0, true, j)
+		}
+	}
+
+	for _, v := range switches {
+		v.StateTopic = fmt.Sprintf(v.StateTopic, zn, zi+1, tempu, instanceName)
+		v.CommandTopic = fmt.Sprintf(v.CommandTopic, zn, zi+1, tempu, instanceName)
+		v.Name = fmt.Sprintf(v.Name, zn, zi+1, tempu, instanceName)
+		v.Unique_id = fmt.Sprintf(v.Unique_id, zn, zi+1, tempu, instanceName)
+
+		if instanceName != "infinitive" {
+			v.Unique_id =  instanceName + "-" + v.Unique_id
+		}
+
+		j, err := json.Marshal(&v)
+		log.Infof("MQTT ZONE SWITCH DISC: %v", j)
+		if err == nil {
+			_ = mqttClient.Publish("homeassistant/switch/infinitive/" + v.Unique_id + "/config", 0, true, j)
 		}
 	}
 
