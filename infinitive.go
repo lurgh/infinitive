@@ -674,6 +674,20 @@ func zoneOffForConfig(zoneNumber int, params *TStatCurrentParams, cfg *TStatZone
 		return false
 	}
 
+	// For zone 1, an active timed override means the zone is on from the user's
+	// perspective, so short-circuit before the raw OFF detector tries to
+	// classify schedule/occupancy state.
+	if cfg.ZTimedOvrdState&0x01 != 0 {
+		return false
+	}
+
+	// A non-auto zone fan setting also means the zone is on from the user's
+	// perspective. In the current corpus ZFanMode[0] is 0 for both ON and OFF
+	// captures, so this only affects future manual-fan states.
+	if cfg.ZFanMode[0] != 0 {
+		return false
+	}
+
 	if zoneOff, ok := zone1OffFromStateTables(); ok {
 		return zoneOff
 	}
