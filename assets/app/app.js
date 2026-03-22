@@ -102,6 +102,13 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
   function adjustOverrideDuration(current, delta) {
     var step = 15;
 
+    // The +/- controls are only enabled while timed override is active.
+    // Once duration reaches 0, the backend resumes schedule and the controls
+    // should become disabled, so this function should never be entered with 0.
+    if (current === 0) {
+      console.error("adjustOverrideDuration called with current=0; the override controls should be disabled in this state");
+    }
+
     if (delta > 0) {
       if (current === 0) {
         return 120;
@@ -129,8 +136,8 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
     var target = adjustOverrideDuration(current, val);
 
     if (target === 0) {
-      $http.put("/api/zone/" + zone + "/config", { "hold": false }).then(function(response) {
-        console.log("cleared hold zone " + zone) ;
+      $http.put("/api/zone/" + zone + "/config", { "overrideDurationMins": 0 }).then(function(response) {
+        console.log("cleared override duration zone " + zone) ;
       });
       return;
     }
