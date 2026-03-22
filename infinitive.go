@@ -23,6 +23,7 @@ type TStatZoneConfig struct {
 	ZoneName	string `json:"zoneName"`
 	FanMode         string `json:"fanMode"`
 	ZoneOff         bool   `json:"zoneOff"`
+	Occupied        bool   `json:"occupied"`
 	Hold            *bool  `json:"hold"`
 	OverrideActive bool `json:"overrideActive"`
 	Preset          string `json:"preset"`
@@ -51,9 +52,10 @@ type TStatZonesConfig struct {
 }
 
 type zoneResponseSpoofProfile struct {
-	payload []byte
-	count   int
-	gap     time.Duration
+	payload           []byte
+	count             int
+	gap               time.Duration
+	triggersRemaining int
 }
 
 type zoneResponseSpoofState struct {
@@ -455,8 +457,8 @@ func writeZoneOff(zoneNumber int, zoneOff bool) bool {
 
 	if zoneOff {
 		if spoofPayload, ok := buildRemoteZoneOffSpoofPayload(zoneNumber); ok {
-			setZoneResponseSpoof(zoneNumber, spoofPayload, 4, 15*time.Millisecond)
-			log.Infof("writeZoneOff: zone %d armed remote 00041e spoof payload=%s", zoneNumber, hex.EncodeToString(spoofPayload))
+			setZoneResponseSpoof(zoneNumber, spoofPayload, 4, 15*time.Millisecond, 2)
+			log.Infof("writeZoneOff: zone %d armed temporary remote 00041e spoof payload=%s", zoneNumber, hex.EncodeToString(spoofPayload))
 		}
 
 		if current, _, ok := remoteZoneCache.zoneOff(zoneNumber); ok && current {
@@ -587,7 +589,84 @@ func getVacationConfig() (*APIVacationConfig, bool) {
 	return &vacAPI, true
 }
 
-func zoneOffForConfig(zoneNumber int, params *TStatCurrentParams) bool {
+func zone1OffFromStateTables() (bool, bool) {
+	// Truth-backed steady-state detector for zone 1.
+	//
+	// Current corpus-backed rule, derived from exhaustive stable-bit search over
+	// the current truth poll captures and verified against the two latest live
+	// bus captures after aligning bus frames back to runtime raw payload offsets.
+	//
+	// First branch by occupied/unoccupied from 003b02[18].bit0:
+	//   occupied   iff 003b02[18].bit0 == 0
+	//   unoccupied iff 003b02[18].bit0 == 1
+	//
+	// Occupied detector:
+	//   zoneOff = (003d03[2].bit6 == 0)
+	//
+	// Unoccupied detector:
+	//   zoneOff = (003b02[17].bit2 == 0) && (003b03[17].bit0 == 0)
+	//
+	// In the current corpus, 000420[4].bit6 mirrors 003d03[2].bit6 for occupied
+	// states, so log an error if they ever diverge live.
+	rawB02 := InfinityProtocolRawRequest{&[]byte{}}
+	if !infinity.Read(devTSTAT, InfinityTableAddr{0x00, 0x3b, 0x02}, rawB02) {
+		return false, false
+	}
+	if len(*rawB02.data) < 19 {
+		return false, false
+	}
+
+	b02b17 := (*rawB02.data)[17]
+	b02b18 := (*rawB02.data)[18]
+	occupied := (b02b18 & 0x01) == 0
+
+	if occupied {
+		rawD03 := InfinityProtocolRawRequest{&[]byte{}}
+		if !infinity.Read(devTSTAT, InfinityTableAddr{0x00, 0x3d, 0x03}, rawD03) {
+			return false, false
+		}
+		if len(*rawD03.data) < 3 {
+			return false, false
+		}
+
+		raw420 := InfinityProtocolRawRequest{&[]byte{}}
+		if !infinity.Read(devTSTAT, InfinityTableAddr{0x00, 0x04, 0x20}, raw420) {
+			return false, false
+		}
+		if len(*raw420.data) < 5 {
+			return false, false
+		}
+
+		d03b2 := (*rawD03.data)[2]
+		t420b4 := (*raw420.data)[4]
+		d03Bit6 := (d03b2 >> 6) & 0x01
+		t420Bit6 := (t420b4 >> 6) & 0x01
+		if d03Bit6 != t420Bit6 {
+			log.Errorf("zone1 detect disagreement: occupied=true 003b02 raw=%x byte18=0x%02x bit0=%d 003d03 raw=%x byte2=0x%02x bit6=%d 000420 raw=%x byte4=0x%02x bit6=%d", *rawB02.data, b02b18, b02b18&0x01, *rawD03.data, d03b2, d03Bit6, *raw420.data, t420b4, t420Bit6)
+		}
+
+		zoneOff := d03Bit6 == 0
+		log.Infof("zone1 detect: occupied=true 003b02 raw=%x byte18=0x%02x bit0=%d 003d03 raw=%x byte2=0x%02x bit6=%d 000420 raw=%x byte4=0x%02x bit6=%d zoneOff=%t", *rawB02.data, b02b18, b02b18&0x01, *rawD03.data, d03b2, d03Bit6, *raw420.data, t420b4, t420Bit6, zoneOff)
+		return zoneOff, true
+	}
+
+	rawB03 := InfinityProtocolRawRequest{&[]byte{}}
+	if !infinity.Read(devTSTAT, InfinityTableAddr{0x00, 0x3b, 0x03}, rawB03) {
+		return false, false
+	}
+	if len(*rawB03.data) < 18 {
+		return false, false
+	}
+
+	b03b17 := (*rawB03.data)[17]
+	b02Bit2 := (b02b17 >> 2) & 0x01
+	b03Bit0 := b03b17 & 0x01
+	zoneOff := b02Bit2 == 0 && b03Bit0 == 0
+	log.Infof("zone1 detect: occupied=false 003b02 raw=%x byte17=0x%02x bit2=%d byte18=0x%02x bit0=%d 003b03 raw=%x byte17=0x%02x bit0=%d zoneOff=%t", *rawB02.data, b02b17, b02Bit2, b02b18, b02b18&0x01, *rawB03.data, b03b17, b03Bit0, zoneOff)
+	return zoneOff, true
+}
+
+func zoneOffForConfig(zoneNumber int, params *TStatCurrentParams, cfg *TStatZoneParams) bool {
 	if zoneNumber > 1 {
 		if zoneOff, _, ok := remoteZoneCache.zoneOff(zoneNumber); ok {
 			return zoneOff
@@ -595,7 +674,11 @@ func zoneOffForConfig(zoneNumber int, params *TStatCurrentParams) bool {
 		return false
 	}
 
-	return params.ZoneUnocc&0x01 != 0
+	if zoneOff, ok := zone1OffFromStateTables(); ok {
+		return zoneOff
+	}
+
+	return false
 }
 
 // get config and status for all zones in one go
@@ -646,7 +729,8 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 			overrideActive := ((cfg.ZTimedOvrdState & (0x01 << zi)) != 0)
 			overrideDurationMins := cfg.ZOvrdDuration[zi]
 			overrideDuration := holdTime(overrideDurationMins)
-			zoneOff := zoneOffForConfig(zi+1, &params)
+			occupied := (params.ZoneUnocc & (0x01 << zi)) == 0
+			zoneOff := zoneOffForConfig(zi+1, &params, &cfg)
 			presetz := "none"
 
 			if holdz {
@@ -665,6 +749,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 				CurrentHumidity:  params.ZCurrentHumidity[zi],
 				FanMode:          rawFanModeToString(cfg.ZFanMode[zi]),
 				ZoneOff:          zoneOff,
+				Occupied:         occupied,
 				Hold:             &holdz,
 				OverrideActive: overrideActive,
 				Preset:           presetz,
@@ -879,7 +964,8 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 	overrideActive := cfg.ZTimedOvrdState & (0x01 << zi) != 0
 	overrideDurationMins := cfg.ZOvrdDuration[zi]
 	overrideDuration := holdTime(overrideDurationMins)
-	zoneOff := zoneOffForConfig(zi+1, &params)
+	occupied := (params.ZoneUnocc & (0x01 << zi)) == 0
+	zoneOff := zoneOffForConfig(zi+1, &params, &cfg)
 	presetz := "none"
 
 	if hold {
@@ -899,6 +985,7 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 		Action:          rawActionToString(params.Mode >> 5),
 		FanMode:         rawFanModeToString(cfg.ZFanMode[zi]),
 		ZoneOff:         zoneOff,
+		Occupied:        occupied,
 		Hold:            &hold,
 		OverrideActive: overrideActive,
 		Preset:          presetz,
@@ -950,13 +1037,17 @@ func logZoneTestState(label string, zoneNumber int) (*TStatZoneConfig, bool) {
 	return cfg, true
 }
 
-func setZoneResponseSpoof(zoneNumber int, payload []byte, count int, gap time.Duration) {
+func setZoneResponseSpoof(zoneNumber int, payload []byte, count int, gap time.Duration, triggers int) {
+	if triggers <= 0 {
+		triggers = 1
+	}
 	activeZoneResponseSpoofs.mu.Lock()
 	defer activeZoneResponseSpoofs.mu.Unlock()
 	activeZoneResponseSpoofs.profiles[zoneNumber] = zoneResponseSpoofProfile{
-		payload: append([]byte(nil), payload...),
-		count:   count,
-		gap:     gap,
+		payload:           append([]byte(nil), payload...),
+		count:             count,
+		gap:               gap,
+		triggersRemaining: triggers,
 	}
 }
 
@@ -977,6 +1068,19 @@ func maybeSpoofZoneResponse(frame *InfinityFrame) {
 
 	activeZoneResponseSpoofs.mu.Lock()
 	profile, ok := activeZoneResponseSpoofs.profiles[zoneNumber]
+	if ok {
+		if profile.triggersRemaining <= 0 {
+			delete(activeZoneResponseSpoofs.profiles, zoneNumber)
+			ok = false
+		} else {
+			profile.triggersRemaining--
+			if profile.triggersRemaining <= 0 {
+				delete(activeZoneResponseSpoofs.profiles, zoneNumber)
+			} else {
+				activeZoneResponseSpoofs.profiles[zoneNumber] = profile
+			}
+		}
+	}
 	activeZoneResponseSpoofs.mu.Unlock()
 	if !ok {
 		return
@@ -1369,7 +1473,7 @@ func runZoneSpoofDirectTest(zoneNumber int, responsePayloadHex string, spoofCoun
 		return 1
 	}
 
-	setZoneResponseSpoof(zoneNumber, payload, spoofCount, spoofGap)
+	setZoneResponseSpoof(zoneNumber, payload, spoofCount, spoofGap, 1000)
 	defer clearZoneResponseSpoof(zoneNumber)
 
 	log.Infof("zonespooftest: writing zone %d zoneOff=true and arming spoof payload=%s count=%d gap=%s", zoneNumber, responsePayloadHex, spoofCount, spoofGap)

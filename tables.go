@@ -175,6 +175,7 @@ type TStatSettings struct {
 func (params TStatSettings) addr() InfinityTableAddr {
 	return InfinityTableAddr{0x00, 0x3B, 0x06}
 }
+
 type TStatTemps struct {
 	Zones [8]struct {
 		Unknown  [2]uint8
