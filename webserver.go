@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 
@@ -45,6 +47,11 @@ func webserver(port int) {
 		zn, err := strconv.Atoi(c.Param("zn"))
 
 		if  err != nil {
+		} else if zn == 0 {
+			cfgZ0, ok := getZonesConfig()
+			if ok {
+				c.JSON(200, cfgZ0)
+			}
 		} else if zn > 0 && zn <= 8 {
 			cfgZN, ok := getZNConfig(zn - 1)
 			if ok {
@@ -106,16 +113,34 @@ func webserver(port int) {
 
 	api.PUT("/zone/:zn/config", func(c *gin.Context) {
 		var args TStatZoneConfig
+		reqArgs := map[string]json.RawMessage{}
 		zn, err := strconv.Atoi(c.Param("zn"));
 
-		if c.Bind(&args) != nil {
+		if reqBody, berr := c.GetRawData(); berr != nil || json.Unmarshal(reqBody, &args) != nil || json.Unmarshal(reqBody, &reqArgs) != nil {
 			log.Printf("bind failed")
-		} else if err != nil || zn < 1 || zn > 8 {
+		} else if err != nil || zn < 0 || zn > 8 {
 			log.Printf("invalid zone numner")
+		} else if _, bad := reqArgs["overrideActive"]; bad {
+			c.AbortWithError(400, errors.New("overrideActive is read-only"))
+			return
+		} else if zn == 0 {
+			if len(args.Mode) > 0 {
+				_ = putConfig("0", "mode", args.Mode)
+			}
 		} else {
 			params := TStatZoneParams{}
 			flags := uint16(0)
 			zi := zn - 1
+			_, overrideReq := reqArgs["overrideDurationMins"]
+			_, zoneOffReq := reqArgs["zoneOff"]
+			zoneOff := false
+
+			if zoneOffReq {
+				if err := json.Unmarshal(reqArgs["zoneOff"], &zoneOff); err != nil {
+					log.Printf("invalid zoneOff value")
+					return
+				}
+			}
 
 			if len(args.FanMode) > 0 {
 				mode, ok := stringFanModeToRaw(args.FanMode)
@@ -136,25 +161,55 @@ func webserver(port int) {
 				flags |= 0x02
 			}
 
-			if args.HeatSetpoint > 0 {
-				params.ZHeatSetpoint[zi] = args.HeatSetpoint
-				flags |= 0x04
+			zoneCfg, haveZoneCfg := getZNConfig(zi)
+
+			if args.HeatSetpoint > 0 && !overrideReq {
+				if haveZoneCfg && zn > 1 && zoneCfg.ZoneOff {
+					_ = putConfig(strconv.Itoa(zn), "heatSetpoint", strconv.Itoa(int(args.HeatSetpoint)))
+				} else {
+					params.ZHeatSetpoint[zi] = args.HeatSetpoint
+					flags |= 0x04
+				}
 			}
 
-			if args.CoolSetpoint > 0 {
-				params.ZCoolSetpoint[zi] = args.CoolSetpoint
-				flags |= 0x08
+			if args.CoolSetpoint > 0 && !overrideReq {
+				if haveZoneCfg && zn > 1 && zoneCfg.ZoneOff {
+					_ = putConfig(strconv.Itoa(zn), "coolSetpoint", strconv.Itoa(int(args.CoolSetpoint)))
+				} else {
+					params.ZCoolSetpoint[zi] = args.CoolSetpoint
+					flags |= 0x08
+				}
+			}
+
+			if overrideReq {
+				cur, ok := getZNConfig(zi)
+				if !ok {
+					log.Printf("unable to read zone config for override duration write")
+					return
+				}
+				heat := cur.HeatSetpoint
+				cool := cur.CoolSetpoint
+				if args.HeatSetpoint > 0 {
+					heat = args.HeatSetpoint
+				}
+				if args.CoolSetpoint > 0 {
+					cool = args.CoolSetpoint
+				}
+				if !writeZoneOverrideDuration(zn, args.OvrdDurationMins, heat, cool) {
+					log.Printf("failed to write zone override duration")
+					return
+				}
 			}
 
 			if flags != 0 {
-				log.Printf("calling WriteTableZ with flags: %d, 0x%x", zi, flags)
+				log.Printf("submitting direct zone write zone=%d flags=0x%x", zn, flags)
 				infinity.WriteTableZ(devTSTAT, params, uint8(zi), flags)
 			}
 
-			if len(args.Mode) > 0 {
-				m, _ := stringModeToRaw(args.Mode)
-				p := TStatCurrentParams{Mode: m}
-				infinity.WriteTable(devTSTAT, p, 0x10)
+			if zoneOffReq {
+				_ = putConfig(strconv.Itoa(zn), "zoneOff", strconv.FormatBool(zoneOff))
+			} else if len(args.Mode) > 0 {
+				_ = putConfig(strconv.Itoa(zn), "mode", args.Mode)
 			}
 		}
 	})
@@ -191,8 +246,11 @@ func webserver(port int) {
 		h.ServeHTTP(c.Writer, c.Request)
 	})
 
-	r.StaticFS("/ui", assetFS())
-	// r.Static("/ui", "github.com/acd/infinitease/assets")
+	if fi, err := os.Stat("assets"); err == nil && fi.IsDir() {
+		r.Static("/ui", "./assets")
+	} else {
+		r.StaticFS("/ui", assetFS())
+	}
 
 	r.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "ui")

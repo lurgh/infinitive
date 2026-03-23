@@ -5,6 +5,16 @@ type InfinityTable interface {
 	addr() InfinityTableAddr
 }
 
+const (
+	// TStatCurrentParams write flags. Mode and display fields were already
+	// known; ZoneUnocc is inferred from its position in the table layout.
+	flagCurrentZoneUnocc = uint16(0x08)
+	flagCurrentMode      = uint16(0x10)
+	flagCurrentDispDOW   = uint16(0x80)
+	flagCurrentDispTime  = uint16(0x100)
+	flagCurrentDispZone  = uint16(0x200)
+)
+
 type TStatCurrentParams struct {
 	ZCurrentTemp      [8]uint8
 	ZCurrentHumidity  [8]uint8
@@ -30,7 +40,7 @@ type TStatZoneParams struct {
 	ZCoolSetpoint    [8]uint8
 	ZTargetHumidity  [8]uint8
 	FanAutoCfg       uint8
-	Unknown          uint8
+	ZTimedOvrdState  uint8 // "hold until" timed override state, matching SAM S1Z1OVR
 	ZOvrdDuration    [8]uint16
 	ZName            [8][12]byte
 }
@@ -166,7 +176,6 @@ func (params TStatSettings) addr() InfinityTableAddr {
 	return InfinityTableAddr{0x00, 0x3B, 0x06}
 }
 
-
 type TStatTemps struct {
 	Zones [8]struct {
 		Unknown  [2]uint8
@@ -174,7 +183,6 @@ type TStatTemps struct {
 		Temp8    uint8
 	}
 }
-
 type APITStatTemps struct {
 	Zones [8]struct {
 		Unknown  uint16
@@ -198,5 +206,3 @@ func (params *TStatTemps) toAPI() *APITStatTemps {
 
 	return &to
 }
-
-

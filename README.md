@@ -240,6 +240,7 @@ Replace [Z] with any zone number 1-8.  If you want data for multiple zones, it's
    "stage":2,
    "fanMode": "auto",
    "hold": true,
+   "overrideActive": false,
    "targetHumidity": 52,
    "zoneName": "Downstairs",
    "overrideDuration": "1:50",
@@ -254,11 +255,16 @@ rawMode included for debugging purposes. It encodes stage and mode.
 Note that paramers stage, mode, outdoorTemp, and rawMode are global across all zones but for historical reasons they are present
 in the per-zone query.
 
+For zone scheduling state:
+- `hold` is the permanent hold flag
+- `overrideActive` is the separate ON/OFF flag for the `hold until` timed override
+- `overrideDurationMins` is the remaining timed override value when that flag is set
+
 #### PUT /api/zone/[Z]/config
 
 Replace [Z] with any zone number 1-8.  One or more parameters to write should be included in the JSON body.  Parameters that are not
-mentioned are not changed.  The only parameters that are settable are "fanMode", "heatSetpoint", "coolSetpoint", and "hold", as well as the global
-parameter "mode".
+mentioned are not changed. `overrideActive` is read-only and may not be written. The only zone parameters that are settable are
+`fanMode`, `heatSetpoint`, `coolSetpoint`, `hold`, and `overrideDurationMins`, as well as the global parameter `mode`.
 
 ```json
 {
@@ -296,6 +302,7 @@ dictionary.  These parameters may for now also be inside the per-zone structures
 	 "zoneName":"Downstairs",
 	 "fanMode":"low",
 	 "hold":true,
+	 "overrideActive":false,
 	 "heatSetpoint":72,
 	 "coolSetpoint":82,
 	 "overrideDuration":"",
@@ -313,6 +320,7 @@ dictionary.  These parameters may for now also be inside the per-zone structures
 	 "zoneName":"Upstairs",
 	 "fanMode":"med",
 	 "hold":false,
+	 "overrideActive":true,
 	 "heatSetpoint":73,
 	 "coolSetpoint":83,
 	 "overrideDuration":"1:25",
@@ -453,12 +461,13 @@ Reported per zone, where X is a zone number 1-8:
 * `infinitive/zone/X/coolSetpoint`: current cool set point, in whole degrees
 * `infinitive/zone/X/heatSetpoint`: current heat set point, in whole degrees
 * `infinitive/zone/X/fanMode`: current fan mode setting, Home Assistant compatible: `low`, `med`, `high`, `auto`
-* `infinitive/zone/X/hold`: bool flag for Hold setting, `false` or `true` (not really useful with HA -- use `preset` instead)
+* `infinitive/zone/X/hold`: bool flag for permanent Hold, `false` or `true` (not really useful with HA -- use `preset` instead)
+* `infinitive/zone/X/overrideActive`: bool flag for the `hold until` timed override state
 * `infinitive/zone/X/preset`: HA-style "preset" flag; currently `hold`, `vacation`, or `none`
 * `infinitive/zone/X/damperPos`: zone damper position reported by zoning unit, 0-100 as whole number percent where 100 is fully open
 * `infinitive/zone/X/flowWeight`: airflow allocation factor for this zone as a decimal fraction (0-1) - multiply the total airflowCFM
   by this number to get the reported airflow for this zone.
-* `infinitive/zone/X/overrideDurationMins`: minutes remaining on zone setting override, zero if none
+* `infinitive/zone/X/overrideDurationMins`: minutes remaining on timed zone override (`hold until`), zero if none
 * `infinitive/zone/X/temp16`: high resolution, unsmoothed temperature, as a decimal number to .0625 degree precision
 
 HomeAssistant MQTT Discovery topics published:
@@ -466,6 +475,8 @@ HomeAssistant MQTT Discovery topics published:
   * all the "global" sensors: `outdoorTemp`, `humidity`, `rawMode`, `blowerRPM`, `airflowCFM`, `staticPressure`, `coolStage`, `heatStage`, `action`
   * all the vacation sensors: `vacation/active`, `vacation/days`, `vacation/hours`, `vacation/minTemp`, `vacation/maxTemp`, `vacation/minHumidity`, `vacation/maxHumidity`, `vacation/fanMode`
   * per-zone "bonus" sensors (not supported by the Climate integration): `damperPos`, `flowWeight`, `overrideDurationMins`, `temp16`
+* `homeassistant/number/infinitive/*/config`: discovery topics, one per writable number entity, for:
+  * per-zone "Set override duration" in 15-minute steps, using the same MQTT state and `/set` command topics
 * `homeassistant/button/infinitive/*/config`: discovery topics to create "buttons" as a convenience to manipulate vacation timing:
   * "HVAC Vacation Cancel", "HVAC Vacation Add 1 Hour", "HVAC Vacation Subtract 1 Hour", "HVAC Vacation 1 Hour", and so on (total of 18 buttons)
 * `homeassistant/climate/infinitive/*/config`: discovery topics, one per zone, for an MQTT HVAC climate entity, which includes:
@@ -555,6 +566,7 @@ Zone topics:
 * `infinitive/zone/X/fanMode/set`: set the fan mode setting, same options as above
 * `infinitive/zone/X/hold/set`: set the zone hold setting, same options as above
 * `infinitive/zone/X/preset/set`: set the zone "preset" setting, `hold` or `none`; `vacation` cannot be set here but setting `hold` will unset it
+* `infinitive/zone/X/overrideDurationMins/set`: set the remaining timed override duration in minutes; `0` resumes schedule by clearing hold/override state
 
 Again remember that the "infinitive/" prefix on these subscribed names will be changed to the instance name if one is provided.  This allows multiple instances of Infinitive to coexist on one MQTT bus.
 
@@ -687,6 +699,19 @@ one needing make redundant requests to the system.  The all-zones API is read-on
 The MQTT API has global and per-zone data as documented above.  The websocket API (used by the UI) is read-only and includes global data and all zones.
 
 There is some cleverness wired into infinitive which calculates per-zone airflow fractions when the fan is running.  Currently this is published only through the MQTT API.
+
+Physical remote zone thermostats also have edge-triggered "zone off" behavior that is not mirrored by the Infinitive APIs.  On the physical thermostat,
+setting cooling to 91°F or heating to 39°F disables the zone instead of storing those values as stable setpoints.  Infinitive's backend APIs do not
+translate those threshold values into `zoneOff=true`; they send the corresponding setpoint write on the bus, and the thermostat then snaps the value
+back to its real maximum/minimum setpoint.  The web GUI behaves the same way because it calls the backend APIs rather than emulating the physical
+thermostat's "one step past the limit means off" UI behavior.
+
+This threshold behavior is documented in an older Carrier Comfort Zone II owner's guide mirror, which describes turning a zone off by pressing below
+40°F in heating mode or above 90°F in cooling mode:
+https://manualzilla.com/doc/7063011/carrier-zonecc2kit01-b-owner-s-manual
+
+We have not found current Carrier Infinity documentation that explicitly mentions these 40/90 threshold values, even though the observed behavior on
+Infinity zone thermostats appears to match the older Comfort Zone documentation.
 
 ##### Airflow Weights Per Zone
 

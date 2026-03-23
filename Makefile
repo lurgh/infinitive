@@ -1,7 +1,7 @@
 default: infinitive
 
-bindata_assetfs.go: assets/ui.html assets/app/app.js assets/index.html
+bindata_assetfs.go:
 	go-bindata-assetfs assets/... && mv bindata.go bindata_assetfs.go
 
-infinitive: bindata_assetfs.go cache.go conversions.go dispatcher.go frame.go infinitive.go protocol.go tables.go webserver.go
+infinitive: cache.go conversions.go dispatcher.go frame.go infinitive.go protocol.go capture.go remote_zones.go tables.go webserver.go bindata_assetfs.go
 	go build infinitive

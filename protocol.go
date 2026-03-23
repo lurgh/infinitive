@@ -27,6 +27,7 @@ type InfinityProtocolRawRequest struct {
 type InfinityProtocolSnoop struct {
 	srcMin uint16
 	srcMax uint16
+	op     uint8
 	cb     snoopCallback
 }
 
@@ -119,11 +120,7 @@ func (p *InfinityProtocol) handleFrame(frame *InfinityFrame) *InfinityFrame {
 		}
 
 		if len(frame.data) > 3 {
-			for _, s := range p.snoops {
-				if frame.src >= s.srcMin && frame.src <= s.srcMax {
-					s.cb(frame)
-				}
-			}
+			p.dispatchSnoops(frame)
 		}
 	case opWRITE:
 		if frame.src == devTSTAT && frame.dst == devSAM {
@@ -132,9 +129,21 @@ func (p *InfinityProtocol) handleFrame(frame *InfinityFrame) *InfinityFrame {
 		} else {
 			p.stats.fother++
 		}
+
+		if len(frame.data) > 3 {
+			p.dispatchSnoops(frame)
+		}
 	}
 
 	return nil
+}
+
+func (p *InfinityProtocol) dispatchSnoops(frame *InfinityFrame) {
+	for _, s := range p.snoops {
+		if frame.op == s.op && frame.src >= s.srcMin && frame.src <= s.srcMax {
+			s.cb(frame)
+		}
+	}
 }
 
 func (p *InfinityProtocol) reader() {
@@ -177,6 +186,7 @@ func (p *InfinityProtocol) reader() {
 
 			frame := &InfinityFrame{}
 			if frame.decode(buf) {
+				busCapture.LogFrame("rx", buf, frame, true, "")
 				p.stats.frames++
 				response := p.handleFrame(frame)
 				if response != nil {
@@ -187,6 +197,7 @@ func (p *InfinityProtocol) reader() {
 				// memory leak.  Not sure if it makes a difference...
 				msg = msg[:copy(msg, msg[l:])]
 			} else {
+				busCapture.LogFrame("rx", buf, nil, false, "decode failed")
 				p.stats.frerrs++
 				// Corrupt message, move ahead one byte and continue parsing
 				msg = msg[:copy(msg, msg[1:])]
@@ -318,6 +329,21 @@ func (p *InfinityProtocol) Write(dst uint16, table []byte, addr []byte, params i
 	return p.send(dst, opWRITE, buf.Bytes(), nil)
 }
 
+func (p *InfinityProtocol) WriteAs(src uint16, dst uint16, table []byte, addr []byte, params interface{}) bool {
+	buf := new(bytes.Buffer)
+	buf.Write(table[:])
+	buf.Write(addr[:])
+	binary.Write(buf, binary.BigEndian, params)
+
+	f := InfinityFrame{src: src, dst: dst, op: opWRITE, data: buf.Bytes()}
+	return p.sendFrame(f.encode())
+}
+
+func (p *InfinityProtocol) SendAs(src uint16, dst uint16, op uint8, data []byte) bool {
+	frame := InfinityFrame{src: src, dst: dst, op: op, data: append([]byte(nil), data...)}
+	return p.sendFrame(frame.encode())
+}
+
 // Update a non-zoned table
 func (p *InfinityProtocol) WriteTable(dst uint16, table InfinityTable, flags uint16) bool {
 	addr := table.addr()
@@ -325,11 +351,23 @@ func (p *InfinityProtocol) WriteTable(dst uint16, table InfinityTable, flags uin
 	return p.Write(dst, addr[:], fl, table)
 }
 
+func (p *InfinityProtocol) WriteTableAs(src uint16, dst uint16, table InfinityTable, flags uint16) bool {
+	addr := table.addr()
+	fl := []byte{0x00, uint8(flags >> 8), uint8(flags)}
+	return p.WriteAs(src, dst, addr[:], fl, table)
+}
+
 // Update a table, specifying the zone index number (0 = Zone 1, 1 = Zone 2, etc).
 func (p *InfinityProtocol) WriteTableZ(dst uint16, table InfinityTable, zflag uint8, flags uint16) bool {
 	addr := table.addr()
 	fl := []byte{zflag, uint8(flags >> 8), uint8(flags)}
 	return p.Write(dst, addr[:], fl, table)
+}
+
+func (p *InfinityProtocol) WriteTableZAs(src uint16, dst uint16, table InfinityTable, zflag uint8, flags uint16) bool {
+	addr := table.addr()
+	fl := []byte{zflag, uint8(flags >> 8), uint8(flags)}
+	return p.WriteAs(src, dst, addr[:], fl, table)
 }
 
 func (p *InfinityProtocol) Read(dst uint16, addr InfinityTableAddr, params interface{}) bool {
@@ -343,7 +381,18 @@ func (p *InfinityProtocol) ReadTable(dst uint16, table InfinityTable) bool {
 	return p.send(dst, opREAD, addr[:], table)
 }
 
+func logBusCapture(direction string, buf []byte, note string) {
+	frame := &InfinityFrame{}
+	if frame.decode(buf) {
+		busCapture.LogFrame(direction, buf, frame, true, note)
+	} else {
+		busCapture.LogFrame(direction, buf, nil, false, note)
+	}
+}
+
 func (p *InfinityProtocol) sendFrame(buf []byte) bool {
+	logBusCapture("tx", buf, "")
+
 	// Ensure we're not in the middle of reopening the serial port due to an error.
 	if p.port == nil {
 		return false
@@ -352,6 +401,7 @@ func (p *InfinityProtocol) sendFrame(buf []byte) bool {
 	// log.Debugf("transmitting frame: %x", buf)
 	_, err := p.port.Write(buf)
 	if err != nil {
+		logBusCapture("tx", buf, fmt.Sprintf("serial write failed: %s", err.Error()))
 		log.Errorf("error writing to serial: %s", err.Error())
 		p.port.Close()
 		p.port = nil
@@ -361,7 +411,12 @@ func (p *InfinityProtocol) sendFrame(buf []byte) bool {
 }
 
 func (p *InfinityProtocol) snoopResponse(srcMin uint16, srcMax uint16, cb snoopCallback) {
-	s := InfinityProtocolSnoop{srcMin: srcMin, srcMax: srcMax, cb: cb}
+	s := InfinityProtocolSnoop{srcMin: srcMin, srcMax: srcMax, op: opRESPONSE, cb: cb}
+	p.snoops = append(p.snoops, s)
+}
+
+func (p *InfinityProtocol) snoopWrite(srcMin uint16, srcMax uint16, cb snoopCallback) {
+	s := InfinityProtocolSnoop{srcMin: srcMin, srcMax: srcMax, op: opWRITE, cb: cb}
 	p.snoops = append(p.snoops, s)
 }
 
@@ -382,4 +437,3 @@ func (p *InfinityProtocol) getStatsString() string {
 
 	return ss
 }
-

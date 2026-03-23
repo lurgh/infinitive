@@ -33,19 +33,47 @@
                  &#x25B8;&#x25B8;&#x25B8;
                </a>
              </div>
+             <h5>Zone status</h5>
+             <div class="btn-group" role="group">
+               <a role="button" class="btn btn-default btm-sm" ng-disabled="!zone.zoneOff" ng-click="setZoneOff(zone.zoneNumber,false)">On</a>
+               <a role="button" class="btn btn-default btm-sm" ng-disabled="zone.zoneOff" ng-click="setZoneOff(zone.zoneNumber,true)">Off</a>
+             </div>
+             <h5>Occupancy</h5>
+             <div>{{ zone.occupied ? "Occupied" : "Unoccupied" }}</div>
            </div>
 
-<div class="col-xs-4">
-<h5>Hold
-	<span ng-hide="!zone.overrideDuration">{{ zone.overrideDuration }}</span>
-</h5>
-             <div class="btn-group" role="group">
-               <a role="button" class="btn btn-default btm-sm" ng-disabled="!zone.hold" ng-click="setHold(zone.zoneNumber,false)">Off</a>
-               <a role="button" class="btn btn-default btm-sm" ng-disabled="zone.hold" ng-click="setHold(zone.zoneNumber,true)">On</a>
+		<div class="col-xs-5">
+		  <h5>Mode</h5>
+		             <div style="display: flex; width: 100%; align-items: stretch;">
+		               <div style="flex: 3; display: flex;">
+		                 <button type="button" class="btn btn-default" style="width: 100%; height: 100%; white-space: normal; border-top-right-radius: 0; border-bottom-right-radius: 0;" ng-disabled="zone.hold === true || zone.zoneOff" ng-click="setHold(zone.zoneNumber,true)">Hold</button>
+		               </div>
+		               <div style="flex: 7; display: flex;">
+		                 <button type="button" class="btn btn-default" style="width: 100%; height: 100%; white-space: normal; border-top-left-radius: 0; border-bottom-left-radius: 0;" ng-disabled="zone.zoneOff || (zone.hold !== true && zone.overrideActive !== true)" ng-click="setHold(zone.zoneNumber,false)">Cancel hold or override</button>
+		               </div>
+		           </div>
+		           <div class="row row-centered">
+		             <h5>{{ zone.zoneOff ? "Off" : (zone.hold ? "Hold" : (zone.overrideActive ? "Override" : "Per schedule")) }}</h5>
+		           </div>
+	           <h5>Override duration</h5>
+	           <div class="row row-centered">
+             <div class="col-xs-4">
+               <a role="button" class="btn btn-default btn-sm" ng-disabled="!zone.overrideActive" ng-click="incOverrideDuration(zone.zoneNumber,-1)">
+                 <span class="glyphicon glyphicon-minus"></span>
+               </a>
+	             </div>
+	             <div class="col-xs-4">
+	               <h5>{{ zone.overrideActive ? zone.overrideDuration : "" }}</h5>
+	             </div>
+	             <div class="col-xs-4">
+	               <a role="button" class="btn btn-default btn-sm" ng-disabled="!zone.overrideActive" ng-click="incOverrideDuration(zone.zoneNumber,1)">
+	                 <span class="glyphicon glyphicon-plus"></span>
+	               </a>
+	             </div>
            </div>
         </div>
     </div>
-    </div>
+	    </div>
       </div>
 
 
