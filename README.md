@@ -240,7 +240,7 @@ Replace [Z] with any zone number 1-8.  If you want data for multiple zones, it's
    "stage":2,
    "fanMode": "auto",
    "hold": true,
-   "timedOverrideActive": false,
+   "overrideActive": false,
    "targetHumidity": 52,
    "zoneName": "Downstairs",
    "overrideDuration": "1:50",
@@ -257,13 +257,13 @@ in the per-zone query.
 
 For zone scheduling state:
 - `hold` is the permanent hold flag
-- `timedOverrideActive` is the separate ON/OFF flag for the `hold until` timed override
+- `overrideActive` is the separate ON/OFF flag for the `hold until` timed override
 - `overrideDurationMins` is the remaining timed override value when that flag is set
 
 #### PUT /api/zone/[Z]/config
 
 Replace [Z] with any zone number 1-8.  One or more parameters to write should be included in the JSON body.  Parameters that are not
-mentioned are not changed. `timedOverrideActive` is read-only and may not be written. The only zone parameters that are settable are
+mentioned are not changed. `overrideActive` is read-only and may not be written. The only zone parameters that are settable are
 `fanMode`, `heatSetpoint`, `coolSetpoint`, `hold`, and `overrideDurationMins`, as well as the global parameter `mode`.
 
 ```json
@@ -302,7 +302,7 @@ dictionary.  These parameters may for now also be inside the per-zone structures
 	 "zoneName":"Downstairs",
 	 "fanMode":"low",
 	 "hold":true,
-	 "timedOverrideActive":false,
+	 "overrideActive":false,
 	 "heatSetpoint":72,
 	 "coolSetpoint":82,
 	 "overrideDuration":"",
@@ -320,7 +320,7 @@ dictionary.  These parameters may for now also be inside the per-zone structures
 	 "zoneName":"Upstairs",
 	 "fanMode":"med",
 	 "hold":false,
-	 "timedOverrideActive":true,
+	 "overrideActive":true,
 	 "heatSetpoint":73,
 	 "coolSetpoint":83,
 	 "overrideDuration":"1:25",
@@ -462,7 +462,7 @@ Reported per zone, where X is a zone number 1-8:
 * `infinitive/zone/X/heatSetpoint`: current heat set point, in whole degrees
 * `infinitive/zone/X/fanMode`: current fan mode setting, Home Assistant compatible: `low`, `med`, `high`, `auto`
 * `infinitive/zone/X/hold`: bool flag for permanent Hold, `false` or `true` (not really useful with HA -- use `preset` instead)
-* `infinitive/zone/X/timedOverrideActive`: bool flag for the `hold until` timed override state
+* `infinitive/zone/X/overrideActive`: bool flag for the `hold until` timed override state
 * `infinitive/zone/X/preset`: HA-style "preset" flag; currently `hold`, `vacation`, or `none`
 * `infinitive/zone/X/damperPos`: zone damper position reported by zoning unit, 0-100 as whole number percent where 100 is fully open
 * `infinitive/zone/X/flowWeight`: airflow allocation factor for this zone as a decimal fraction (0-1) - multiply the total airflowCFM

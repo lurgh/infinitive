@@ -42,24 +42,24 @@
 		                 <button type="button" class="btn btn-default" style="width: 100%; height: 100%; white-space: normal; border-top-right-radius: 0; border-bottom-right-radius: 0;" ng-disabled="zone.hold === true" ng-click="setHold(zone.zoneNumber,true)">Hold</button>
 		               </div>
 		               <div style="flex: 7; display: flex;">
-		                 <button type="button" class="btn btn-default" style="width: 100%; height: 100%; white-space: normal; border-top-left-radius: 0; border-bottom-left-radius: 0;" ng-disabled="zone.hold !== true && zone.timedOverrideActive !== true" ng-click="setHold(zone.zoneNumber,false)">Resume schedule</button>
+		                 <button type="button" class="btn btn-default" style="width: 100%; height: 100%; white-space: normal; border-top-left-radius: 0; border-bottom-left-radius: 0;" ng-disabled="zone.hold !== true && zone.overrideActive !== true" ng-click="setHold(zone.zoneNumber,false)">Cancel hold or override</button>
 		               </div>
 		           </div>
 		           <div class="row row-centered">
-		             <h5>{{ zone.hold ? "Hold" : (zone.timedOverrideActive ? "Timed override" : "Per schedule") }}</h5>
+		             <h5>{{ zone.hold ? "Hold" : (zone.overrideActive ? "Override" : "Per schedule") }}</h5>
 		           </div>
 	           <h5>Override duration</h5>
 	           <div class="row row-centered">
              <div class="col-xs-4">
-               <a role="button" class="btn btn-default btn-sm" ng-disabled="!zone.timedOverrideActive" ng-click="incOverrideDuration(zone.zoneNumber,-1)">
+               <a role="button" class="btn btn-default btn-sm" ng-disabled="!zone.overrideActive" ng-click="incOverrideDuration(zone.zoneNumber,-1)">
                  <span class="glyphicon glyphicon-minus"></span>
                </a>
 	             </div>
 	             <div class="col-xs-4">
-	               <h5>{{ zone.timedOverrideActive ? zone.overrideDuration : "" }}</h5>
+	               <h5>{{ zone.overrideActive ? zone.overrideDuration : "" }}</h5>
 	             </div>
 	             <div class="col-xs-4">
-	               <a role="button" class="btn btn-default btn-sm" ng-disabled="!zone.timedOverrideActive" ng-click="incOverrideDuration(zone.zoneNumber,1)">
+	               <a role="button" class="btn btn-default btn-sm" ng-disabled="!zone.overrideActive" ng-click="incOverrideDuration(zone.zoneNumber,1)">
 	                 <span class="glyphicon glyphicon-plus"></span>
 	               </a>
 	             </div>

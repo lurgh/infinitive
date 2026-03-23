@@ -22,7 +22,7 @@ type TStatZoneConfig struct {
 	ZoneName	string `json:"zoneName"`
 	FanMode         string `json:"fanMode"`
 	Hold            *bool  `json:"hold"`
-	TimedOverrideActive bool `json:"timedOverrideActive"`
+	OverrideActive bool `json:"overrideActive"`
 	Preset          string `json:"preset"`
 	HeatSetpoint    uint8  `json:"heatSetpoint"`
 	CoolSetpoint    uint8  `json:"coolSetpoint"`
@@ -195,7 +195,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 	for zi := range params.ZCurrentTemp {
 		if params.ZCurrentTemp[zi] > 0 && params.ZCurrentTemp[zi] < 255 {
 			holdz := ((cfg.ZoneHold & (0x01 << zi)) != 0)
-			timedOverrideActive := ((cfg.ZTimedOvrdState & (0x01 << zi)) != 0)
+			overrideActive := ((cfg.ZTimedOvrdState & (0x01 << zi)) != 0)
 			overrideDurationMins := cfg.ZOvrdDuration[zi]
 			overrideDuration := holdTime(overrideDurationMins)
 			presetz := "none"
@@ -203,7 +203,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 			if holdz {
 				presetz = "hold"
 			}
-			if !timedOverrideActive {
+			if !overrideActive {
 				overrideDurationMins = 0
 				overrideDuration = ""
 			}
@@ -216,7 +216,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 				CurrentHumidity:  params.ZCurrentHumidity[zi],
 				FanMode:          rawFanModeToString(cfg.ZFanMode[zi]),
 				Hold:             &holdz,
-				TimedOverrideActive: timedOverrideActive,
+				OverrideActive: overrideActive,
 				Preset:           presetz,
 				HeatSetpoint:     cfg.ZHeatSetpoint[zi],
 				CoolSetpoint:     cfg.ZCoolSetpoint[zi],
@@ -415,7 +415,7 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 	}
 
 	hold := cfg.ZoneHold & (0x01 << zi) != 0
-	timedOverrideActive := cfg.ZTimedOvrdState & (0x01 << zi) != 0
+	overrideActive := cfg.ZTimedOvrdState & (0x01 << zi) != 0
 	overrideDurationMins := cfg.ZOvrdDuration[zi]
 	overrideDuration := holdTime(overrideDurationMins)
 	presetz := "none"
@@ -423,7 +423,7 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 	if hold {
 		presetz = "hold"
 	}
-	if !timedOverrideActive {
+	if !overrideActive {
 		overrideDurationMins = 0
 		overrideDuration = ""
 	}
@@ -437,7 +437,7 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 		Action:          rawActionToString(params.Mode >> 5),
 		FanMode:         rawFanModeToString(cfg.ZFanMode[zi]),
 		Hold:            &hold,
-		TimedOverrideActive: timedOverrideActive,
+		OverrideActive: overrideActive,
 		Preset:          presetz,
 		HeatSetpoint:    cfg.ZHeatSetpoint[zi],
 		CoolSetpoint:    cfg.ZCoolSetpoint[zi],
@@ -605,7 +605,7 @@ func statePoller(monArray []uint16) {
 				mqttCache.update(zp+"/targetHumidity", c1.Zones[zi].TargetHumidity)
 				mqttCache.update(zp+"/fanMode", c1.Zones[zi].FanMode)
 				mqttCache.update(zp+"/hold", *c1.Zones[zi].Hold)
-				mqttCache.update(zp+"/timedOverrideActive", c1.Zones[zi].TimedOverrideActive)
+				mqttCache.update(zp+"/overrideActive", c1.Zones[zi].OverrideActive)
 				mqttCache.update(zp+"/overrideDurationMins", c1.Zones[zi].OvrdDurationMins)
 				if c2ok && *c2.Active {
 					mqttCache.update(zp+"/preset", "vacation")

@@ -115,8 +115,8 @@ func webserver(port int) {
 			log.Printf("bind failed")
 		} else if err != nil || zn < 1 || zn > 8 {
 			log.Printf("invalid zone numner")
-		} else if _, bad := reqArgs["timedOverrideActive"]; bad {
-			c.AbortWithError(400, errors.New("timedOverrideActive is read-only"))
+		} else if _, bad := reqArgs["overrideActive"]; bad {
+			c.AbortWithError(400, errors.New("overrideActive is read-only"))
 			return
 		} else {
 			params := TStatZoneParams{}
