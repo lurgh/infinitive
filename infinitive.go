@@ -113,7 +113,7 @@ func writeZoneResumeSchedule(zoneNumber int) bool {
 // current setpoints, otherwise unrelated zone fields can be clobbered.
 // A duration of 0 is the API/"resume schedule" form and is translated here to
 // the ZoneHold=false write, because writing a raw 0 duration does not reliably
-// clear the timed override state on the thermostat.
+// clear the override state on the thermostat.
 func writeZoneOverrideDuration(zoneNumber int, durationMins uint16, heatSetpoint uint8, coolSetpoint uint8) bool {
 	if zoneNumber < 1 || zoneNumber > 8 {
 		return false
@@ -195,7 +195,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 	for zi := range params.ZCurrentTemp {
 		if params.ZCurrentTemp[zi] > 0 && params.ZCurrentTemp[zi] < 255 {
 			holdz := ((cfg.ZoneHold & (0x01 << zi)) != 0)
-			overrideActive := ((cfg.ZTimedOvrdState & (0x01 << zi)) != 0)
+			overrideActive := ((cfg.ZOvrdState & (0x01 << zi)) != 0)
 			overrideDurationMins := cfg.ZOvrdDuration[zi]
 			overrideDuration := holdTime(overrideDurationMins)
 			presetz := "none"
@@ -415,7 +415,7 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 	}
 
 	hold := cfg.ZoneHold & (0x01 << zi) != 0
-	overrideActive := cfg.ZTimedOvrdState & (0x01 << zi) != 0
+	overrideActive := cfg.ZOvrdState & (0x01 << zi) != 0
 	overrideDurationMins := cfg.ZOvrdDuration[zi]
 	overrideDuration := holdTime(overrideDurationMins)
 	presetz := "none"

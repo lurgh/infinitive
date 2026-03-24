@@ -30,7 +30,7 @@ type TStatZoneParams struct {
 	ZCoolSetpoint    [8]uint8
 	ZTargetHumidity  [8]uint8
 	FanAutoCfg       uint8
-	ZTimedOvrdState  uint8 // "hold until" timed override state, matching SAM S1Z1OVR
+	ZOvrdState       uint8 // "hold until" override state, matching SAM S1Z1OVR
 	ZOvrdDuration    [8]uint16
 	ZName            [8][12]byte
 }

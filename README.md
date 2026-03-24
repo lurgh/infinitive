@@ -257,8 +257,8 @@ in the per-zone query.
 
 For zone scheduling state:
 - `hold` is the permanent hold flag
-- `overrideActive` is the separate ON/OFF flag for the `hold until` timed override
-- `overrideDurationMins` is the remaining timed override value when that flag is set
+- `overrideActive` is the separate ON/OFF flag for the `hold until` override
+- `overrideDurationMins` is the remaining override value when that flag is set
 
 #### PUT /api/zone/[Z]/config
 
@@ -462,12 +462,12 @@ Reported per zone, where X is a zone number 1-8:
 * `infinitive/zone/X/heatSetpoint`: current heat set point, in whole degrees
 * `infinitive/zone/X/fanMode`: current fan mode setting, Home Assistant compatible: `low`, `med`, `high`, `auto`
 * `infinitive/zone/X/hold`: bool flag for permanent Hold, `false` or `true` (not really useful with HA -- use `preset` instead)
-* `infinitive/zone/X/overrideActive`: bool flag for the `hold until` timed override state
+* `infinitive/zone/X/overrideActive`: bool flag for the `hold until` override state
 * `infinitive/zone/X/preset`: HA-style "preset" flag; currently `hold`, `vacation`, or `none`
 * `infinitive/zone/X/damperPos`: zone damper position reported by zoning unit, 0-100 as whole number percent where 100 is fully open
 * `infinitive/zone/X/flowWeight`: airflow allocation factor for this zone as a decimal fraction (0-1) - multiply the total airflowCFM
   by this number to get the reported airflow for this zone.
-* `infinitive/zone/X/overrideDurationMins`: minutes remaining on timed zone override (`hold until`), zero if none
+* `infinitive/zone/X/overrideDurationMins`: minutes remaining on zone override (`hold until`), zero if none
 * `infinitive/zone/X/temp16`: high resolution, unsmoothed temperature, as a decimal number to .0625 degree precision
 
 HomeAssistant MQTT Discovery topics published:
@@ -566,7 +566,7 @@ Zone topics:
 * `infinitive/zone/X/fanMode/set`: set the fan mode setting, same options as above
 * `infinitive/zone/X/hold/set`: set the zone hold setting, same options as above
 * `infinitive/zone/X/preset/set`: set the zone "preset" setting, `hold` or `none`; `vacation` cannot be set here but setting `hold` will unset it
-* `infinitive/zone/X/overrideDurationMins/set`: set the remaining timed override duration in minutes; `0` resumes schedule by clearing hold/override state
+* `infinitive/zone/X/overrideDurationMins/set`: set the remaining override duration in minutes; `0` resumes schedule by clearing hold/override state
 
 Again remember that the "infinitive/" prefix on these subscribed names will be changed to the instance name if one is provided.  This allows multiple instances of Infinitive to coexist on one MQTT bus.
 

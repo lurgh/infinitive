@@ -349,7 +349,7 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 	sensors := []discoveryTopicSensor {
 		{ "%[4]s/zone/%[2]d/damperPos", "%[1]s Damper Postion", "", "measurement", "%", "hvac-sensors-z%[2]d-dpos", a},
 		{ "%[4]s/zone/%[2]d/flowWeight", "%[1]s Airflow Weight", "", "measurement", "", "hvac-sensors-z%[2]d-fwgt", a},
-		{ "%[4]s/zone/%[2]d/overrideActive", "%[1]s Timed Override Active", "", "", "", "hvac-sensors-z%[2]d-tovr", a},
+		{ "%[4]s/zone/%[2]d/overrideActive", "%[1]s Override Active", "", "", "", "hvac-sensors-z%[2]d-tovr", a},
 		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[1]s Override duration", "duration", "measurement", "min", "hvac-sensors-z%[2]d-odur", a},
 		{ "%[4]s/zone/%[2]d/temp16", "%[1]s Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-z%[2]d-t16", a},
 	}
