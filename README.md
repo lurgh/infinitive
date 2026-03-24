@@ -115,6 +115,27 @@ $ infinitive ... -rlog
 In addition to all normal operations, this option causes infinitive to log all requests and responses seen on the serial bus in an hourly log file named 'resplog.YYMMDDHH' which will be created in the current directory.  This is intended
 to capture serial bus data for offline analysis.
 
+  * Capture decoded bus traffic to JSONL:
+```
+$ infinitive ... -buscap
+$ infinitive ... -buscap=my-capture.jsonl
+```
+Passing `-buscap` with no `=` creates a new timestamped file in the current directory named like `buscap-YYYYMMDD-HHMMSS.jsonl`. Passing `-buscap=...` writes to the requested file name instead, adding a timestamp suffix automatically if that path already exists.
+
+Each line in the capture file is a JSON object describing one bus frame. The main fields are:
+
+  * `ts`, `unix_ms`: wall-clock timestamp of the captured frame
+  * `dir`: `"tx"` or `"rx"`
+  * `raw_hex`: full raw frame bytes as hex
+  * `valid`: whether the frame decoded successfully
+  * `note`: optional decode or write error note
+  * `src`, `dst`, `op`: numeric source address, destination address, and operation code
+  * `src_hex`, `dst_hex`, `op_hex`: the same values rendered in hex for human readability
+  * `op_name`: decoded operation name such as `READ`, `WRITE`, or `RESPONSE`
+  * `data_hex`: decoded payload bytes as hex
+
+Compared to `-rlog`, `-buscap` captures both transmitted and received frames, preserves raw bytes, and keeps undecodable traffic for later analysis.
+
   * Enable debug level logging:
 ```
 $ infinitive ... -debug
@@ -258,7 +279,7 @@ in the per-zone query.
 
 Replace [Z] with any zone number 1-8.  One or more parameters to write should be included in the JSON body.  Parameters that are not
 mentioned are not changed.  The only parameters that are settable are "fanMode", "heatSetpoint", "coolSetpoint", and "hold", as well as the global
-parameter "mode".
+parameter "mode". `targetHumidity` is read-only.
 
 ```json
 {

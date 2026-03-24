@@ -38,6 +38,7 @@ type TStatZoneConfig struct {
 type TStatZonesConfig struct {
 	Zones             []TStatZoneConfig  `json:"zones,omitempty"`
 	OutdoorTemp       uint8  `json:"outdoorTemp"`
+	Dehumidify        bool   `json:"dehumidify"`
 	Mode              string `json:"mode"`
 	Stage             uint8  `json:"stage"`
 	Action            string `json:"action"`
@@ -77,6 +78,41 @@ type Logger struct {
 var RLogger Logger;
 
 var infinity *InfinityProtocol
+
+type busCaptureFlag struct {
+	enabled bool
+	auto    bool
+	path    string
+}
+
+func (f *busCaptureFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return f.path
+}
+
+func (f *busCaptureFlag) Set(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "true":
+		f.enabled = true
+		f.auto = true
+		f.path = ""
+	case "false":
+		f.enabled = false
+		f.auto = false
+		f.path = ""
+	default:
+		f.enabled = true
+		f.auto = false
+		f.path = value
+	}
+	return nil
+}
+
+func (f *busCaptureFlag) IsBoolFlag() bool {
+	return true
+}
 
 // system instance name (default: "infinitive")
 //  used as the root mqtt topic name and to unique-ify entities
@@ -133,8 +169,18 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 		return nil, false
 	}
 
+	state := TStatStateParams{}
+	ok = infinity.ReadTable(devTSTAT, &state)
+	if !ok {
+		return nil, false
+	}
+
 	tstat := TStatZonesConfig{
 		OutdoorTemp:       params.OutdoorAirTemp,
+		// Dehumidify is a read-only inferred getter for now.
+		// Based on truth_humidity captures, 003d03[12] flips cleanly between
+		// 0xa5 (disabled) and 0x5a (enabled) across all sampled files.
+		Dehumidify:        state.Raw[12] == 0x5a,
 		Mode:              rawModeToString(params.Mode & 0xf),
 		Stage:             params.Mode >> 5,
 		Action:            rawActionToString(params.Mode >> 5),
@@ -522,10 +568,11 @@ func statePoller(monArray []uint16) {
 			}
 
 			if hum > 0 {
-				mqttCache.update(pf+"/humidity", hum)
-			}
-			mqttCache.update(pf+"/outdoorTemp", c1.OutdoorTemp)
-			mqttCache.update(pf+"/mode", c1.Mode)
+			mqttCache.update(pf+"/humidity", hum)
+		}
+		mqttCache.update(pf+"/outdoorTemp", c1.OutdoorTemp)
+		mqttCache.update(pf+"/dehumidify", c1.Dehumidify)
+		mqttCache.update(pf+"/mode", c1.Mode)
 			// mqttCache.update(pf+"/action", c1.Action) // replaced by action set from snoop messages
 			mqttCache.update(pf+"/rawMode", c1.RawMode)
 			mqttCache.update(pf+"/dispZone", c1.DispZone)
@@ -757,6 +804,8 @@ func main() {
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
 	doDebugLog := flag.Bool("debug", false, "enable debug log level")
 	showDryingOpt := flag.Bool("drying", false, "enable reporting of Drying HVAC action")
+	var busCapturePath busCaptureFlag
+	flag.Var(&busCapturePath, "buscap", "capture decoded bus traffic to a JSONL file")
 
 	flag.Parse()
 
@@ -793,6 +842,17 @@ func main() {
 			panic("unable to open resp log file")
 		}
 		defer RLogger.Close()
+	}
+
+	if busCapturePath.enabled {
+		path := busCapturePath.path
+		if busCapturePath.auto {
+			path = autoCapturePath()
+		}
+		if !busCapture.Open(path) {
+			panic("unable to open bus capture file")
+		}
+		defer busCapture.Close()
 	}
 
 	infinity = &InfinityProtocol{device: *serialPort}

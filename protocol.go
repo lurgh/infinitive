@@ -177,6 +177,7 @@ func (p *InfinityProtocol) reader() {
 
 			frame := &InfinityFrame{}
 			if frame.decode(buf) {
+				busCapture.LogFrame("rx", buf, frame, true, "")
 				p.stats.frames++
 				response := p.handleFrame(frame)
 				if response != nil {
@@ -187,6 +188,7 @@ func (p *InfinityProtocol) reader() {
 				// memory leak.  Not sure if it makes a difference...
 				msg = msg[:copy(msg, msg[l:])]
 			} else {
+				busCapture.LogFrame("rx", buf, nil, false, "decode failed")
 				p.stats.frerrs++
 				// Corrupt message, move ahead one byte and continue parsing
 				msg = msg[:copy(msg, msg[1:])]
@@ -343,7 +345,18 @@ func (p *InfinityProtocol) ReadTable(dst uint16, table InfinityTable) bool {
 	return p.send(dst, opREAD, addr[:], table)
 }
 
+func logBusCapture(direction string, buf []byte, note string) {
+	frame := &InfinityFrame{}
+	if frame.decode(buf) {
+		busCapture.LogFrame(direction, buf, frame, true, note)
+	} else {
+		busCapture.LogFrame(direction, buf, nil, false, note)
+	}
+}
+
 func (p *InfinityProtocol) sendFrame(buf []byte) bool {
+	logBusCapture("tx", buf, "")
+
 	// Ensure we're not in the middle of reopening the serial port due to an error.
 	if p.port == nil {
 		return false
@@ -352,6 +365,7 @@ func (p *InfinityProtocol) sendFrame(buf []byte) bool {
 	// log.Debugf("transmitting frame: %x", buf)
 	_, err := p.port.Write(buf)
 	if err != nil {
+		logBusCapture("tx", buf, fmt.Sprintf("serial write failed: %s", err.Error()))
 		log.Errorf("error writing to serial: %s", err.Error())
 		p.port.Close()
 		p.port = nil
@@ -382,4 +396,3 @@ func (p *InfinityProtocol) getStatsString() string {
 
 	return ss
 }
-
