@@ -14,6 +14,12 @@
           <h1>{{ zone.currentTemp }}&deg;</h1>
           {{ zone.currentHumidity }}% Humidity
 	</div>
+	<div class="row row-centered">
+          <h5>Target Humidity</h5>
+	</div>
+	<div class="row row-centered">
+          <h3>{{ zone.targetHumidity }}%</h3>
+	</div>
 
         <div class="row row-centered">
 	   <div class="row">
@@ -110,6 +116,15 @@
 	</div>
 
 	<div class="row row-centered">
+           <h5>Indoor Humidity
+		<span ng-show="tstat.zones && tstat.zones.length > 0">{{ tstat.zones[0].currentHumidity }}%</span>
+	   </h5>
+           <h5>Dehumidify
+		<span>{{ tstat.dehumidify ? "On" : "Off" }}</span>
+	   </h5>
+           <h5>Vacation Humidity Range
+		<span ng-show="vacation.minHumidity !== undefined && vacation.maxHumidity !== undefined">{{ vacation.minHumidity }}% - {{ vacation.maxHumidity }}%</span>
+	   </h5>
            <h5>Fan:
 		<span ng-show="blower.blowerRPM == 0">Off</span>
 		<span ng-hide="blower.blowerRPM == 0">{{ blower.blowerRPM }} RPM ({{ blower.airFlowCFM }} CFM)</span>
@@ -150,6 +165,54 @@
 
 
   <!-- end of global -->
+
+    <div class="row">
+      <div class="col-xs-6 col-md-3 col-md-push-3">
+        <div class="col-xs-12 well">
+          <div class="row row-centered">
+            <div class="col-xs-12 col-md-12">
+              <h5>Vacation Min Humidity</h5>
+            </div>
+            <div class="col-xs-4 col-md-12">
+              <a role="button" class="btn btn-default btn-sm" ng-click="incVacationMinHumidity(1)">
+                <span class="glyphicon glyphicon-triangle-top"></span>
+              </a>
+            </div>
+            <div class="col-xs-4 col-md-12">
+              <h2>{{ vacation.minHumidity }}%</h2>
+            </div>
+            <div class="col-xs-4 col-md-12">
+              <a role="button" class="btn btn-default btn-sm" ng-click="incVacationMinHumidity(-1)">
+                <span class="glyphicon glyphicon-triangle-bottom"></span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-xs-6 col-md-3 col-md-push-3">
+        <div class="col-xs-12 well">
+          <div class="row row-centered">
+            <div class="col-xs-12 col-md-12">
+              <h5>Vacation Max Humidity</h5>
+            </div>
+            <div class="col-xs-4 col-md-12">
+              <a role="button" class="btn btn-default btn-sm" ng-click="incVacationMaxHumidity(1)">
+                <span class="glyphicon glyphicon-triangle-top"></span>
+              </a>
+            </div>
+            <div class="col-xs-4 col-md-12">
+              <h2>{{ vacation.maxHumidity }}%</h2>
+            </div>
+            <div class="col-xs-4 col-md-12">
+              <a role="button" class="btn btn-default btn-sm" ng-click="incVacationMaxHumidity(-1)">
+                <span class="glyphicon glyphicon-triangle-bottom"></span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
   </div>
 </div>

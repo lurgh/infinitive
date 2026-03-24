@@ -175,6 +175,21 @@ type TStatTemps struct {
 	}
 }
 
+// Raw thermostat state table.
+//
+// Only a small part of 003d03 is currently understood.  The dehumidify
+// configuration getter is derived empirically from byte 12 in this table:
+// captures under truth_humidity show 0x5a when dehumidify is enabled and
+// 0xa5 when it is disabled.  Keep this table raw until more of its layout
+// is decoded with confidence.
+type TStatStateParams struct {
+	Raw [14]uint8
+}
+
+func (params TStatStateParams) addr() InfinityTableAddr {
+	return InfinityTableAddr{0x00, 0x3D, 0x03}
+}
+
 type APITStatTemps struct {
 	Zones [8]struct {
 		Unknown  uint16
@@ -198,5 +213,3 @@ func (params *TStatTemps) toAPI() *APITStatTemps {
 
 	return &to
 }
-
-

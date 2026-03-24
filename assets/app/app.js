@@ -45,6 +45,7 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
   $scope.tstat = {};
   $scope.blower = {};
   $scope.heatpump = {};
+  $scope.vacation = {};
 
   var $wsUrl = "ws://" + $location.host() + ":" + $location.port() + "/api/ws";
 
@@ -55,6 +56,8 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
        $scope.blower = msg.data;
     } else if (msg.source == "heatpump") {
        $scope.heatpump = msg.data;
+    } else if (msg.source == "vacation") {
+       $scope.vacation = msg.data;
     }
   });
 
@@ -95,6 +98,20 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
     var temp = $scope.tstat.zones[zone-1].heatSetpoint + val;
     $http.put("/api/zone/" + zone + "/config", { "heatSetpoint": temp }).then(function(response) {
       console.log("set heat setpoint zone " + zone + " to " + temp) ;
+    });
+  }
+
+  $scope.incVacationMinHumidity = function(val) {
+    var hum = ($scope.vacation.minHumidity || 0) + val;
+    $http.put("/api/zone/1/vacation", { "minHumidity": hum }).then(function(response) {
+      console.log("set vacation min humidity to " + hum) ;
+    });
+  }
+
+  $scope.incVacationMaxHumidity = function(val) {
+    var hum = ($scope.vacation.maxHumidity || 0) + val;
+    $http.put("/api/zone/1/vacation", { "maxHumidity": hum }).then(function(response) {
+      console.log("set vacation max humidity to " + hum) ;
     });
   }
 
