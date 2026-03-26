@@ -87,7 +87,7 @@ var instanceName string
 //  we default to false to maintain backward compatibility
 var showDrying bool = false
 
-const maxOverrideDurationMins = 2184
+const maxOverrideDurationMins = 1439
 
 func holdTime(ht uint16) string {
 	if ht == 0 {

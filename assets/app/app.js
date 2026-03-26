@@ -1,7 +1,7 @@
 console.log("loaded app.js");
 
 var app = angular.module('thermostatApp', ['ngWebSocket']);
-var maxOverrideDurationMins = 2184;
+var maxOverrideDurationMins = 1439;
 
 /*
 app.factory('thermostatEvents', function($websocket) {
@@ -107,25 +107,15 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
     // should become disabled, so this function should never be entered with 0.
     if (current === 0) {
       console.error("adjustOverrideDuration called with current=0; the override controls should be disabled in this state");
+      return 0;
     }
 
     if (delta > 0) {
-      if (current === 0) {
-        return 120;
-      }
-      var roundedUp = Math.ceil(current / step) * step;
-      if (roundedUp === current) {
-        return Math.min(current + step, maxOverrideDurationMins);
-      }
-      return Math.min(roundedUp, maxOverrideDurationMins);
+      return Math.min(Math.trunc((current + step) / step) * step, maxOverrideDurationMins);
     }
 
     if (delta < 0) {
-      var roundedDown = Math.floor(current / step) * step;
-      if (roundedDown === current) {
-        return current >= step ? current - step : 0;
-      }
-      return roundedDown;
+      return Math.max(Math.ceil((current - step) / step) * step, 0);
     }
 
     return current;

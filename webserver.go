@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 
@@ -218,11 +217,7 @@ func webserver(port int) {
 		h.ServeHTTP(c.Writer, c.Request)
 	})
 
-	if fi, err := os.Stat("assets"); err == nil && fi.IsDir() {
-		r.Static("/ui", "./assets")
-	} else {
-		r.StaticFS("/ui", assetFS())
-	}
+	r.StaticFS("/ui", assetFS())
 
 	r.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "ui")

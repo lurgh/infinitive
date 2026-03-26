@@ -354,7 +354,7 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 		{ "%[4]s/zone/%[2]d/temp16", "%[1]s Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-z%[2]d-t16", a},
 	}
 	numbers := []discoveryTopicNumber {
-		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[4]s/zone/%[2]d/overrideDurationMins/set", "%[1]s Set override duration", "box", 0, 2184, 15, "min", "hvac-numbers-z%[2]d-sodur", a},
+		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[4]s/zone/%[2]d/overrideDurationMins/set", "%[1]s Set override duration", "box", 0, 1439, 15, "min", "hvac-numbers-z%[2]d-sodur", a},
 	}
 	tempu := "F"
 	if tu > 0 { tempu = "C" }
