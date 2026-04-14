@@ -794,6 +794,7 @@ func main() {
 	showDryingOpt := flag.Bool("drying", false, "enable reporting of Drying HVAC action")
 	var busCapturePath busCaptureFlag
 	flag.Var(&busCapturePath, "buscap", "capture decoded bus traffic to a JSONL file")
+	capRotate := flag.Bool("capture-rotate", false, "rotate capture file on open instead of appending")
 
 	flag.Parse()
 
@@ -837,7 +838,7 @@ func main() {
 		if busCapturePath.auto {
 			path = autoCapturePath()
 		}
-		if !busCapture.Open(path) {
+		if !busCapture.Open(path, *capRotate) {
 			panic("unable to open bus capture file")
 		}
 		defer busCapture.Close()

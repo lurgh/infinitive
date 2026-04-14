@@ -44,17 +44,27 @@ type busCaptureRecord struct {
 	DataHex string `json:"data_hex,omitempty"`
 }
 
-func (c *BusCapture) Open(path string) bool {
+func (c *BusCapture) Open(path string, rotate bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	finalPath, err := nextCapturePath(path)
-	if err != nil {
-		log.Errorf("failed to select bus capture file '%s': %s", path, err)
-		return false
+	var finalPath string
+	var flags int
+
+	if rotate {
+		var err error
+		finalPath, err = nextCapturePath(path)
+		if err != nil {
+			log.Errorf("failed to select bus capture file '%s': %s", path, err)
+			return false
+		}
+		flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	} else {
+		finalPath = path
+		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	}
 
-	f, err := os.OpenFile(finalPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	f, err := os.OpenFile(finalPath, flags, 0644)
 	if err != nil {
 		log.Errorf("failed to open bus capture file '%s': %s", finalPath, err)
 		return false
@@ -72,7 +82,7 @@ func (c *BusCapture) Open(path string) bool {
 func nextCapturePath(requested string) (string, error) {
 	path := strings.TrimSpace(requested)
 	if path == "" {
-		path = "buscap.jsonl"
+		return "", fmt.Errorf("capture path must not be empty")
 	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -153,9 +163,5 @@ func (c *BusCapture) logRecord(rec busCaptureRecord) {
 
 	if _, err = c.f.Write(b); err != nil {
 		log.Errorf("bus capture write failed: %s", err)
-		return
-	}
-	if err = c.f.Sync(); err != nil {
-		log.Errorf("bus capture sync failed: %s", err)
 	}
 }
