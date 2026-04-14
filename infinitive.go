@@ -109,12 +109,11 @@ func writeZoneResumeSchedule(zoneNumber int) bool {
 	return infinity.WriteTableZ(devTSTAT, params, uint8(zoneNumber-1), 0x02)
 }
 
-// Timed hold writes must start from a live copy of table 003b03 and carry the
-// current setpoints, otherwise unrelated zone fields can be clobbered.
+// Flag 0x80 sets the override timer independently of setpoints.
 // A duration of 0 is the API/"resume schedule" form and is translated here to
 // the ZoneHold=false write, because writing a raw 0 duration does not reliably
 // clear the override state on the thermostat.
-func writeZoneOverrideDuration(zoneNumber int, durationMins uint16, heatSetpoint uint8, coolSetpoint uint8) bool {
+func writeZoneOverrideDuration(zoneNumber int, durationMins uint16) bool {
 	if zoneNumber < 1 || zoneNumber > 8 {
 		return false
 	}
@@ -127,15 +126,9 @@ func writeZoneOverrideDuration(zoneNumber int, durationMins uint16, heatSetpoint
 
 	zi := zoneNumber - 1
 	params := TStatZoneParams{}
-	if !infinity.ReadTable(devTSTAT, &params) {
-		return false
-	}
-
 	params.ZOvrdDuration[zi] = durationMins
-	params.ZHeatSetpoint[zi] = heatSetpoint
-	params.ZCoolSetpoint[zi] = coolSetpoint
 
-	return infinity.WriteTableZ(devTSTAT, params, uint8(zi), 0x10c)
+	return infinity.WriteTableZ(devTSTAT, params, uint8(zi), 0x80)
 }
 
 // get vacation config and status
@@ -304,15 +297,11 @@ func putConfig(zone string, param string, value string) bool {
 					log.Infof("putConfig: clamping overrideDurationMins from %d to %d for zone %d", val, maxOverrideDurationMins, zn)
 					val = maxOverrideDurationMins
 				}
-				if cur, ok := getZNConfig(zi); !ok {
-					log.Errorf("putConfig: unable to read current zone config for overrideDurationMins write, zone %d", zn)
-					return false
-				} else if !writeZoneOverrideDuration(zn, uint16(val), cur.HeatSetpoint, cur.CoolSetpoint) {
+				if !writeZoneOverrideDuration(zn, uint16(val)) {
 					log.Errorf("putConfig: failed to write overrideDurationMins=%d for zone %d", val, zn)
 					return false
-				} else {
-					return true
 				}
+				return true
 			}
 		case "hold":	// dedicated 'hold' semantics
 			var val bool

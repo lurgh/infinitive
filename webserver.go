@@ -142,31 +142,18 @@ func webserver(port int) {
 				flags |= 0x02
 			}
 
-			if args.HeatSetpoint > 0 && !overrideReq {
+			if args.HeatSetpoint > 0 {
 				params.ZHeatSetpoint[zi] = args.HeatSetpoint
 				flags |= 0x04
 			}
 
-			if args.CoolSetpoint > 0 && !overrideReq {
+			if args.CoolSetpoint > 0 {
 				params.ZCoolSetpoint[zi] = args.CoolSetpoint
 				flags |= 0x08
 			}
 
 			if overrideReq {
-				cur, ok := getZNConfig(zi)
-				if !ok {
-					log.Printf("unable to read zone config for override duration write")
-					return
-				}
-				heat := cur.HeatSetpoint
-				cool := cur.CoolSetpoint
-				if args.HeatSetpoint > 0 {
-					heat = args.HeatSetpoint
-				}
-				if args.CoolSetpoint > 0 {
-					cool = args.CoolSetpoint
-				}
-				if !writeZoneOverrideDuration(zn, args.OvrdDurationMins, heat, cool) {
+				if !writeZoneOverrideDuration(zn, args.OvrdDurationMins) {
 					log.Printf("failed to write zone override duration")
 					return
 				}
