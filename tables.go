@@ -30,7 +30,7 @@ type TStatZoneParams struct {
 	ZCoolSetpoint    [8]uint8
 	ZTargetHumidity  [8]uint8
 	FanAutoCfg       uint8
-	Unknown          uint8
+	ZOvrdState       uint8 // bitflags - "hold until" override state, matching SAM S1Z1OVR
 	ZOvrdDuration    [8]uint16
 	ZName            [8][12]byte
 }
@@ -198,5 +198,3 @@ func (params *TStatTemps) toAPI() *APITStatTemps {
 
 	return &to
 }
-
-

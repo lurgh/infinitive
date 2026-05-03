@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -106,16 +107,21 @@ func webserver(port int) {
 
 	api.PUT("/zone/:zn/config", func(c *gin.Context) {
 		var args TStatZoneConfig
+		reqArgs := map[string]json.RawMessage{}
 		zn, err := strconv.Atoi(c.Param("zn"));
 
-		if c.Bind(&args) != nil {
+		if reqBody, berr := c.GetRawData(); berr != nil || json.Unmarshal(reqBody, &args) != nil || json.Unmarshal(reqBody, &reqArgs) != nil {
 			log.Printf("bind failed")
 		} else if err != nil || zn < 1 || zn > 8 {
 			log.Printf("invalid zone numner")
+		} else if _, bad := reqArgs["overrideActive"]; bad {
+			c.AbortWithError(400, errors.New("overrideActive is read-only"))
+			return
 		} else {
 			params := TStatZoneParams{}
 			flags := uint16(0)
 			zi := zn - 1
+			_, overrideReq := reqArgs["overrideDurationMins"]
 
 			if len(args.FanMode) > 0 {
 				mode, ok := stringFanModeToRaw(args.FanMode)
@@ -144,6 +150,13 @@ func webserver(port int) {
 			if args.CoolSetpoint > 0 {
 				params.ZCoolSetpoint[zi] = args.CoolSetpoint
 				flags |= 0x08
+			}
+
+			if overrideReq {
+				if !writeZoneOverrideDuration(zn, args.OvrdDurationMins) {
+					log.Printf("failed to write zone override duration")
+					return
+				}
 			}
 
 			if flags != 0 {
@@ -192,7 +205,6 @@ func webserver(port int) {
 	})
 
 	r.StaticFS("/ui", assetFS())
-	// r.Static("/ui", "github.com/acd/infinitease/assets")
 
 	r.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "ui")

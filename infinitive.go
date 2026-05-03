@@ -22,6 +22,7 @@ type TStatZoneConfig struct {
 	ZoneName	string `json:"zoneName"`
 	FanMode         string `json:"fanMode"`
 	Hold            *bool  `json:"hold"`
+	OverrideActive bool `json:"overrideActive"`
 	Preset          string `json:"preset"`
 	HeatSetpoint    uint8  `json:"heatSetpoint"`
 	CoolSetpoint    uint8  `json:"coolSetpoint"`
@@ -121,11 +122,48 @@ var instanceName string
 //  we default to false to maintain backward compatibility
 var showDrying bool = false
 
+const maxOverrideDurationMins = 1439
+
 func holdTime(ht uint16) string {
 	if ht == 0 {
 		return ""
 	}
 	return fmt.Sprintf("%d:%02d", ht/60, ht % 60)
+}
+
+// On this thermostat, clearing a timed "hold until" override is done through
+// the same zone-hold write used to resume schedule. A duration write of 0 does
+// not reliably clear S1Z1OVR on its own, so overrideDurationMins=0 must map to
+// ZoneHold=false.
+func writeZoneResumeSchedule(zoneNumber int) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+
+	params := TStatZoneParams{}
+	return infinity.WriteTableZ(devTSTAT, params, uint8(zoneNumber-1), 0x02)
+}
+
+// Flag 0x80 sets the override timer independently of setpoints.
+// A duration of 0 is the API/"resume schedule" form and is translated here to
+// the ZoneHold=false write, because writing a raw 0 duration does not reliably
+// clear the override state on the thermostat.
+func writeZoneOverrideDuration(zoneNumber int, durationMins uint16) bool {
+	if zoneNumber < 1 || zoneNumber > 8 {
+		return false
+	}
+	if durationMins == 0 {
+		return writeZoneResumeSchedule(zoneNumber)
+	}
+	if durationMins > maxOverrideDurationMins {
+		durationMins = maxOverrideDurationMins
+	}
+
+	zi := zoneNumber - 1
+	params := TStatZoneParams{}
+	params.ZOvrdDuration[zi] = durationMins
+
+	return infinity.WriteTableZ(devTSTAT, params, uint8(zi), 0x80)
 }
 
 // get vacation config and status
@@ -185,27 +223,35 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 	for zi := range params.ZCurrentTemp {
 		if params.ZCurrentTemp[zi] > 0 && params.ZCurrentTemp[zi] < 255 {
 			holdz := ((cfg.ZoneHold & (0x01 << zi)) != 0)
+			overrideActive := ((cfg.ZOvrdState & (0x01 << zi)) != 0)
+			overrideDurationMins := cfg.ZOvrdDuration[zi]
+			overrideDuration := holdTime(overrideDurationMins)
 			presetz := "none"
 
 			if holdz {
 				presetz = "hold"
 			}
+			if !overrideActive {
+				overrideDurationMins = 0
+				overrideDuration = ""
+			}
 
 			zName := string(bytes.Trim(cfg.ZName[zi][:], " \000"))
 
 			zoneArr[zc] = TStatZoneConfig{
-					ZoneNumber:       uint8(zi+1),
-					CurrentTemp:      params.ZCurrentTemp[zi],
-					CurrentHumidity:  params.ZCurrentHumidity[zi],
-					FanMode:          rawFanModeToString(cfg.ZFanMode[zi]),
-					Hold:             &holdz,
-					Preset:           presetz,
-					HeatSetpoint:     cfg.ZHeatSetpoint[zi],
-					CoolSetpoint:     cfg.ZCoolSetpoint[zi],
-					TargetHumidity:   cfg.ZTargetHumidity[zi],
-					OvrdDuration:     holdTime(cfg.ZOvrdDuration[zi]),
-					OvrdDurationMins: cfg.ZOvrdDuration[zi],
-					ZoneName:         zName }
+				ZoneNumber:       uint8(zi+1),
+				CurrentTemp:      params.ZCurrentTemp[zi],
+				CurrentHumidity:  params.ZCurrentHumidity[zi],
+				FanMode:          rawFanModeToString(cfg.ZFanMode[zi]),
+				Hold:             &holdz,
+				OverrideActive: overrideActive,
+				Preset:           presetz,
+				HeatSetpoint:     cfg.ZHeatSetpoint[zi],
+				CoolSetpoint:     cfg.ZCoolSetpoint[zi],
+				TargetHumidity:   cfg.ZTargetHumidity[zi],
+				OvrdDuration:     overrideDuration,
+				OvrdDurationMins: overrideDurationMins,
+				ZoneName:         zName }
 
 			zc++
 
@@ -260,6 +306,37 @@ func putConfig(zone string, param string, value string) bool {
 			} else {
 				params.ZHeatSetpoint[zi] = uint8(val)
 				flags |= 0x04
+			}
+		case "overrideDurationMins":
+			base := uint16(0)
+			if len(value) == 0 {
+				log.Errorf("putConfig: invalid overrideDurationMins value '%s' for zone %d", value, zn)
+				return false
+			}
+			if value[0] == '+' || value[0] == '-' {
+				if cur, ok := getZNConfig(zi); !ok {
+					log.Errorf("putConfig: unable to read current zone config for relative overrideDurationMins write, zone %d", zn)
+					return false
+				} else {
+					base = cur.OvrdDurationMins
+				}
+			}
+			if val, err := strconv.ParseInt(value, 10, 32); err != nil {
+				log.Errorf("putConfig: invalid overrideDurationMins value '%s' for zone %d", value, zn)
+				return false
+			} else {
+				val += int64(base)
+				if val < 0 {
+					val = 0
+				} else if val > maxOverrideDurationMins {
+					log.Infof("putConfig: clamping overrideDurationMins from %d to %d for zone %d", val, maxOverrideDurationMins, zn)
+					val = maxOverrideDurationMins
+				}
+				if !writeZoneOverrideDuration(zn, uint16(val)) {
+					log.Errorf("putConfig: failed to write overrideDurationMins=%d for zone %d", val, zn)
+					return false
+				}
+				return true
 			}
 		case "hold":	// dedicated 'hold' semantics
 			var val bool
@@ -362,10 +439,17 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 	}
 
 	hold := cfg.ZoneHold & (0x01 << zi) != 0
+	overrideActive := cfg.ZOvrdState & (0x01 << zi) != 0
+	overrideDurationMins := cfg.ZOvrdDuration[zi]
+	overrideDuration := holdTime(overrideDurationMins)
 	presetz := "none"
 
 	if hold {
 		presetz = "hold"
+	}
+	if !overrideActive {
+		overrideDurationMins = 0
+		overrideDuration = ""
 	}
 
 	return &TStatZoneConfig{
@@ -377,11 +461,12 @@ func getZNConfig(zi int) (*TStatZoneConfig, bool) {
 		Action:          rawActionToString(params.Mode >> 5),
 		FanMode:         rawFanModeToString(cfg.ZFanMode[zi]),
 		Hold:            &hold,
+		OverrideActive: overrideActive,
 		Preset:          presetz,
 		HeatSetpoint:    cfg.ZHeatSetpoint[zi],
 		CoolSetpoint:    cfg.ZCoolSetpoint[zi],
-		OvrdDuration:    holdTime(cfg.ZOvrdDuration[zi]),
-		OvrdDurationMins: cfg.ZOvrdDuration[zi],
+		OvrdDuration:    overrideDuration,
+		OvrdDurationMins: overrideDurationMins,
 		ZoneName:        string(bytes.Trim(cfg.ZName[zi][:], " \000")),
 		TargetHumidity:  cfg.ZTargetHumidity[zi],
 		RawMode:         params.Mode,
@@ -544,6 +629,7 @@ func statePoller(monArray []uint16) {
 				mqttCache.update(zp+"/targetHumidity", c1.Zones[zi].TargetHumidity)
 				mqttCache.update(zp+"/fanMode", c1.Zones[zi].FanMode)
 				mqttCache.update(zp+"/hold", *c1.Zones[zi].Hold)
+				mqttCache.update(zp+"/overrideActive", c1.Zones[zi].OverrideActive)
 				mqttCache.update(zp+"/overrideDurationMins", c1.Zones[zi].OvrdDurationMins)
 				if c2ok && *c2.Active {
 					mqttCache.update(zp+"/preset", "vacation")

@@ -1,6 +1,7 @@
 console.log("loaded app.js");
 
 var app = angular.module('thermostatApp', ['ngWebSocket']);
+var maxOverrideDurationMins = 1439;
 
 /*
 app.factory('thermostatEvents', function($websocket) {
@@ -95,6 +96,44 @@ app.controller('thermostatController', function($scope, $http, $interval, $locat
     var temp = $scope.tstat.zones[zone-1].heatSetpoint + val;
     $http.put("/api/zone/" + zone + "/config", { "heatSetpoint": temp }).then(function(response) {
       console.log("set heat setpoint zone " + zone + " to " + temp) ;
+    });
+  }
+
+  function adjustOverrideDuration(current, delta) {
+    var step = 15;
+
+    // The +/- controls are only enabled while override is active.
+    // Once duration reaches 0, the backend resumes schedule and the controls
+    // should become disabled, so this function should never be entered with 0.
+    if (current === 0) {
+      console.error("adjustOverrideDuration called with current=0; the override controls should be disabled in this state");
+      return 0;
+    }
+
+    if (delta > 0) {
+      return Math.min(Math.trunc((current + step) / step) * step, maxOverrideDurationMins);
+    }
+
+    if (delta < 0) {
+      return Math.max(Math.ceil((current - step) / step) * step, 0);
+    }
+
+    return current;
+  }
+
+  $scope.incOverrideDuration = function(zone,val) {
+    var current = $scope.tstat.zones[zone-1].overrideDurationMins || 0;
+    var target = adjustOverrideDuration(current, val);
+
+    if (target === 0) {
+      $http.put("/api/zone/" + zone + "/config", { "overrideDurationMins": 0 }).then(function(response) {
+        console.log("cleared override duration zone " + zone) ;
+      });
+      return;
+    }
+
+    $http.put("/api/zone/" + zone + "/config", { "overrideDurationMins": target }).then(function(response) {
+      console.log("set override duration zone " + zone + " to " + target) ;
     });
   }
 
