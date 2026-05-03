@@ -79,6 +79,41 @@ var RLogger Logger;
 
 var infinity *InfinityProtocol
 
+type busCaptureFlag struct {
+	enabled bool
+	auto    bool
+	path    string
+}
+
+func (f *busCaptureFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return f.path
+}
+
+func (f *busCaptureFlag) Set(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "true":
+		f.enabled = true
+		f.auto = true
+		f.path = ""
+	case "false":
+		f.enabled = false
+		f.auto = false
+		f.path = ""
+	default:
+		f.enabled = true
+		f.auto = false
+		f.path = value
+	}
+	return nil
+}
+
+func (f *busCaptureFlag) IsBoolFlag() bool {
+	return true
+}
+
 // system instance name (default: "infinitive")
 //  used as the root mqtt topic name and to unique-ify entities
 var instanceName string
@@ -843,6 +878,9 @@ func main() {
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
 	doDebugLog := flag.Bool("debug", false, "enable debug log level")
 	showDryingOpt := flag.Bool("drying", false, "enable reporting of Drying HVAC action")
+	var busCapturePath busCaptureFlag
+	flag.Var(&busCapturePath, "buscap", "capture decoded bus traffic to a JSONL file")
+	capRotate := flag.Bool("capture-rotate", false, "rotate capture file on open instead of appending")
 
 	flag.Parse()
 
@@ -879,6 +917,17 @@ func main() {
 			panic("unable to open resp log file")
 		}
 		defer RLogger.Close()
+	}
+
+	if busCapturePath.enabled {
+		path := busCapturePath.path
+		if busCapturePath.auto {
+			path = autoCapturePath()
+		}
+		if !busCapture.Open(path, *capRotate) {
+			panic("unable to open bus capture file")
+		}
+		defer busCapture.Close()
 	}
 
 	infinity = &InfinityProtocol{device: *serialPort}

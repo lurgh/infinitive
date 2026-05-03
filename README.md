@@ -115,6 +115,45 @@ $ infinitive ... -rlog
 In addition to all normal operations, this option causes infinitive to log all requests and responses seen on the serial bus in an hourly log file named 'resplog.YYMMDDHH' which will be created in the current directory.  This is intended
 to capture serial bus data for offline analysis.
 
+  * Capture decoded bus traffic to JSONL:
+```
+$ infinitive ... -buscap
+$ infinitive ... -buscap=my-capture.jsonl
+```
+Passing `-buscap` with no `=` creates a new timestamped file in the current directory named like `buscap-YYYYMMDD-HHMMSS.jsonl`. Passing `-buscap=...` writes to the requested file name instead, adding a timestamp suffix automatically if that path already exists.
+
+Each line in the capture file is a JSON object describing one bus frame. The main fields are:
+
+  * `ts`, `unix_ms`: wall-clock timestamp of the captured frame
+  * `dir`: `"tx"` or `"rx"`
+  * `raw_hex`: full raw frame bytes as hex
+  * `valid`: whether the frame decoded successfully
+  * `note`: optional decode or write error note
+  * `src`, `dst`, `op`: numeric source address, destination address, and operation code
+  * `src_hex`, `dst_hex`, `op_hex`: the same values rendered in hex for human readability
+  * `op_name`: decoded operation name such as `READ`, `WRITE`, or `RESPONSE`
+  * `data_hex`: decoded payload bytes as hex
+
+The numeric and hex address/op fields are intentionally redundant:
+
+  * the numeric fields are easier for scripts and numeric comparisons
+  * the hex fields are easier to read when working with Infinity bus addresses such as `0x9201` and `0x2001`
+
+Compared to `-rlog`, `-buscap` has several advantages:
+
+  * it records both transmitted (`tx`) and received (`rx`) frames, while `-rlog` records only decoded received traffic
+  * it preserves the full raw frame bytes in `raw_hex`
+  * it records undecodable/corrupt traffic with `valid=false`, which `-rlog` drops
+  * it is easier to analyze with scripts because each frame is a structured JSON record
+  * it includes both numeric and hex address fields, so it is convenient for both machine processing and human-readable inspection
+
+If you need to know exactly what infinitive sent onto the bus, prefer `-buscap`. `-rlog` is mainly useful as a lighter-weight text log of decoded inbound traffic.
+
+Example:
+```json
+{"ts":"2026-03-20T23:04:01.546184125-07:00","unix_ms":1774073041546,"dir":"tx","raw_hex":"...","valid":true,"src":37377,"src_hex":"0x9201","dst":8193,"dst_hex":"0x2001","op":12,"op_hex":"0x0c","op_name":"WRITE","data_hex":"003b03010002..."}
+```
+
   * Enable debug level logging:
 ```
 $ infinitive ... -debug
