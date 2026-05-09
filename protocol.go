@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"time"
 	"fmt"
 
@@ -72,6 +73,36 @@ type Action struct {
 
 var readTimeout = time.Second * 5
 
+func validFrameOp(op uint8) bool {
+	return op == opRESPONSE || op == opREAD || op == opWRITE || op == opERROR
+}
+
+func plausibleFrameStart(buf []byte) bool {
+	if len(buf) < 8 {
+		return false
+	}
+
+	// Current Infinity frames have two reserved zero bytes before the opcode.
+	// Checking them avoids treating arbitrary payload bytes as frame headers
+	// while resynchronizing after a corrupted serial read.
+	if buf[5] != 0 || buf[6] != 0 || !validFrameOp(buf[7]) {
+		return false
+	}
+
+	dst := binary.BigEndian.Uint16(buf[0:2])
+	src := binary.BigEndian.Uint16(buf[2:4])
+	return dst != 0 && src != 0
+}
+
+func nextPlausibleFrameStart(buf []byte) int {
+	for i := 1; i+8 <= len(buf); i++ {
+		if plausibleFrameStart(buf[i:]) {
+			return i
+		}
+	}
+	return len(buf)
+}
+
 func (p *InfinityProtocol) openSerial() error {
 	log.Printf("opening serial interface: %s", p.device)
 	if p.port != nil {
@@ -126,6 +157,14 @@ func (p *InfinityProtocol) handleFrame(frame *InfinityFrame) *InfinityFrame {
 			}
 		}
 	case opWRITE:
+		if len(frame.data) > 3 {
+			for _, s := range p.snoops {
+				if frame.src >= s.srcMin && frame.src <= s.srcMax {
+					s.cb(frame)
+				}
+			}
+		}
+
 		if frame.src == devTSTAT && frame.dst == devSAM {
 			p.stats.fself++
 			return writeAck
@@ -162,12 +201,28 @@ func (p *InfinityProtocol) reader() {
 		p.stats.rcvs++
 
 		// log.Printf("%q", buf[:n])
+		busCapture.LogRaw("rx_raw", buf[:n], "serial read")
 		msg = append(msg, buf[:n]...)
 		// log.Printf("buf len is: %v", len(msg))
 
 		for {
 			if len(msg) < 10 {
 				break
+			}
+			if !plausibleFrameStart(msg) {
+				skip := nextPlausibleFrameStart(msg)
+				if skip == len(msg) {
+					if log.IsLevelEnabled(log.DebugLevel) {
+						log.Debugf("serial parser resync: dropping %d bytes without plausible frame header: %s", skip, hex.EncodeToString(msg))
+					}
+					msg = msg[:0]
+				} else {
+					if log.IsLevelEnabled(log.DebugLevel) {
+						log.Debugf("serial parser resync: skipping %d bytes before plausible frame header", skip)
+					}
+					msg = msg[:copy(msg, msg[skip:])]
+				}
+				continue
 			}
 			l := int(msg[4]) + 10
 			if len(msg) < l {
@@ -190,8 +245,15 @@ func (p *InfinityProtocol) reader() {
 			} else {
 				busCapture.LogFrame("rx", buf, nil, false, "decode failed")
 				p.stats.frerrs++
+				if log.IsLevelEnabled(log.DebugLevel) {
+					log.Debugf("serial frame decode failed: len=%d raw=%s", len(buf), hex.EncodeToString(buf))
+				}
 				// Corrupt message, move ahead one byte and continue parsing
-				msg = msg[:copy(msg, msg[1:])]
+				skip := nextPlausibleFrameStart(msg)
+				if skip == 0 {
+					skip = 1
+				}
+				msg = msg[:copy(msg, msg[skip:])]
 			}
 		}
 	}
