@@ -64,6 +64,41 @@ type InfinityProtocol struct {
 	stats	   *protocolStats
 }
 
+func fixedASCII(s string, size int) []byte {
+	b := make([]byte, size)
+	copy(b, []byte(s))
+	return b
+}
+
+func samDeviceInfoResponse(dst uint16) *InfinityFrame {
+	data := make([]byte, 0, 123)
+	data = append(data, 0x00, 0x01, 0x04)
+	data = append(data, fixedASCII("INFINITIVE SAM", 48)...)
+	data = append(data, fixedASCII("INFNTV-2026", 16)...)
+	data = append(data, fixedASCII("SYSTXCCSAM01", 24)...)
+	data = append(data, fixedASCII("INF000000001", 32)...)
+
+	return &InfinityFrame{
+		src:  devSAM,
+		dst:  dst,
+		op:   opRESPONSE,
+		data: data,
+	}
+}
+
+func samEmptyTableResponse(dst uint16, table []byte) *InfinityFrame {
+	data := make([]byte, 0, 10)
+	data = append(data, table...)
+	data = append(data, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+
+	return &InfinityFrame{
+		src:  devSAM,
+		dst:  dst,
+		op:   opRESPONSE,
+		data: data,
+	}
+}
+
 type Action struct {
 	requestFrame  *InfinityFrame
 	responseFrame *InfinityFrame
@@ -141,6 +176,25 @@ func (p *InfinityProtocol) handleFrame(frame *InfinityFrame) *InfinityFrame {
 	RLogger.Log(frame)
 
 	switch frame.op {
+	case opREAD:
+		if frame.dst == devSAM {
+			p.stats.fself++
+			if bytes.Equal(frame.data, []byte{0x00, 0x01, 0x04}) {
+				log.Infof("SAM discovery: %04x read 000104, responding with Infinitive SAM identity", frame.src)
+				return samDeviceInfoResponse(frame.src)
+			}
+			if bytes.Equal(frame.data, []byte{0x00, 0x03, 0x0d}) {
+				log.Infof("SAM discovery: %04x read 00030d, responding with empty SAM table", frame.src)
+				return samEmptyTableResponse(frame.src, frame.data)
+			}
+			if len(frame.data) == 3 {
+				log.Infof("SAM discovery: %04x read unsupported SAM table %02x%02x%02x", frame.src, frame.data[0], frame.data[1], frame.data[2])
+			} else {
+				log.Infof("SAM discovery: %04x read unsupported SAM payload %x", frame.src, frame.data)
+			}
+		} else {
+			p.stats.fother++
+		}
 	case opRESPONSE:
 		if frame.dst == devSAM {
 			p.stats.fself++

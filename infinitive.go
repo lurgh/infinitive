@@ -905,6 +905,7 @@ func main() {
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
 	doDebugLog := flag.Bool("debug", false, "enable debug log level")
 	showDryingOpt := flag.Bool("drying", false, "enable reporting of Drying HVAC action")
+	noPoll := flag.Bool("nopoll", false, "disable periodic polling")
 	var busCapturePath busCaptureFlag
 	flag.Var(&busCapturePath, "buscap", "capture decoded bus traffic to a JSONL file")
 	capRotate := flag.Bool("capture-rotate", false, "rotate capture file on open instead of appending")
@@ -1028,7 +1029,9 @@ func main() {
 		ConnectMqtt(*mqttBrokerUrl, os.Getenv("MQTTPASS"))
 	}
 
-	go statePoller(rawMonTable)
-	go statsPoller()
+	if noPoll == nil || !*noPoll {
+		go statePoller(rawMonTable)
+		go statsPoller()
+	}
 	webserver(*httpPort)
 }
