@@ -180,10 +180,12 @@ func (p *InfinityProtocol) handleFrame(frame *InfinityFrame) *InfinityFrame {
 		if frame.dst == devSAM {
 			p.stats.fself++
 			if bytes.Equal(frame.data, []byte{0x00, 0x01, 0x04}) {
+				markTouchThermostatDetected()
 				log.Infof("SAM discovery: %04x read 000104, responding with Infinitive SAM identity", frame.src)
 				return samDeviceInfoResponse(frame.src)
 			}
 			if bytes.Equal(frame.data, []byte{0x00, 0x03, 0x0d}) {
+				markTouchThermostatDetected()
 				log.Infof("SAM discovery: %04x read 00030d, responding with empty SAM table", frame.src)
 				return samEmptyTableResponse(frame.src, frame.data)
 			}

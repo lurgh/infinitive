@@ -80,6 +80,33 @@ type runtimeZone struct {
 var runtimeZoneMu sync.Mutex
 var runtimeZones [8]runtimeZone
 var runtimeOutdoorTemp uint8
+var modeWriteNotify bool
+var touchOffCommand bool
+var touchThermostatDetected bool
+
+func plausibleRuntimeTemp(temp uint8) bool {
+	return temp > 0 && temp <= 150
+}
+
+func plausibleRuntimeHumidity(humidity uint8) bool {
+	return humidity > 0 && humidity <= 100
+}
+
+func plausibleRuntimeSetpoint(setpoint uint8) bool {
+	return setpoint >= 35 && setpoint <= 99
+}
+
+func markTouchThermostatDetected() {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	touchThermostatDetected = true
+}
+
+func isTouchThermostatDetected() bool {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	return touchThermostatDetected
+}
 
 type Logger struct {
 	f	*os.File
@@ -147,23 +174,30 @@ func updateRuntimeZone(zi int, currentTemp uint8, currentHumidity uint8, heatSet
 	}
 	runtimeZoneMu.Lock()
 	defer runtimeZoneMu.Unlock()
-	runtimeZones[zi].Seen = true
-	if currentTemp > 0 {
+	seen := false
+	if plausibleRuntimeTemp(currentTemp) {
 		runtimeZones[zi].CurrentTemp = currentTemp
+		seen = true
 	}
-	if currentHumidity > 0 {
+	if plausibleRuntimeHumidity(currentHumidity) {
 		runtimeZones[zi].CurrentHumidity = currentHumidity
+		seen = true
 	}
-	if heatSetpoint > 0 {
+	if plausibleRuntimeSetpoint(heatSetpoint) {
 		runtimeZones[zi].HeatSetpoint = heatSetpoint
+		seen = true
 	}
-	if coolSetpoint > 0 {
+	if plausibleRuntimeSetpoint(coolSetpoint) {
 		runtimeZones[zi].CoolSetpoint = coolSetpoint
+		seen = true
+	}
+	if seen {
+		runtimeZones[zi].Seen = true
 	}
 }
 
 func updateRuntimeOutdoorTemp(outdoorTemp uint8) {
-	if outdoorTemp == 0 {
+	if !plausibleRuntimeTemp(outdoorTemp) {
 		return
 	}
 	runtimeZoneMu.Lock()
@@ -184,6 +218,9 @@ func appendRuntimeZones(zoneArr [8]TStatZoneConfig, zc int) ([8]TStatZoneConfig,
 		if !rz.Seen {
 			continue
 		}
+		if zc >= len(zoneArr) {
+			break
+		}
 		holdz := false
 		zoneArr[zc] = TStatZoneConfig{
 				ZoneNumber:       uint8(zi+1),
@@ -198,6 +235,103 @@ func appendRuntimeZones(zoneArr [8]TStatZoneConfig, zc int) ([8]TStatZoneConfig,
 		zc++
 	}
 	return zoneArr, zc
+}
+
+func writeCurrentMode(mode uint8, notify bool) bool {
+	if notify {
+		cfg := TStatZoneParams{}
+		if infinity.ReadTable(devTSTAT, &cfg) {
+			infinity.WriteTable(devTSTAT, cfg, 0x10)
+		}
+	}
+
+	p := TStatCurrentParams{Mode: mode}
+	// setting these parameters can make our thermostat lose up to 1 min of time keeping
+	// so we include a time/day setting with every command; adding 30s helps in rounding to
+	// the nearest minute given truncation to one-minute resolution
+	tnow := time.Now().Add(time.Second * 30)
+	p.DispDOW = uint8(tnow.Weekday())
+	p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
+
+	return infinity.WriteTable(devTSTAT, p, 0x10|0x180)
+}
+
+func readCurrentMode() (uint8, bool) {
+	params := TStatCurrentParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return 0, false
+	}
+	return params.Mode & 0x0f, true
+}
+
+func modeReadbackMatches(value string) bool {
+	for i := 0; i < 3; i++ {
+		time.Sleep(time.Millisecond * 500)
+		if mode, ok := readCurrentMode(); ok {
+			if rawModeToString(mode) == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func writeGlobalMode(value string) bool {
+	if mode, ok := stringModeToRaw(value); !ok {
+		log.Errorf("putConfig: invalid mode value '%s'", value)
+		return false
+	} else if value != "off" {
+		if writeCurrentMode(mode, modeWriteNotify) && modeReadbackMatches(value) {
+			return true
+		}
+		if modeWriteNotify {
+			log.Errorf("mode command '%s' did not report expected readback", value)
+			return false
+		}
+
+		log.Infof("mode command '%s' did not take; trying thermostat notification", value)
+		if writeCurrentMode(mode, true) && modeReadbackMatches(value) {
+			modeWriteNotify = true
+			return true
+		}
+
+		log.Errorf("mode command '%s' did not report expected readback after notification", value)
+		return false
+	}
+
+	if touchOffCommand {
+		return writeCurrentMode(4, true)
+	}
+
+	if writeCurrentMode(5, modeWriteNotify) && modeReadbackMatches("off") {
+		return true
+	}
+
+	if !modeWriteNotify {
+		log.Infof("legacy off command did not take; trying thermostat notification")
+		if writeCurrentMode(5, true) && modeReadbackMatches("off") {
+			modeWriteNotify = true
+			return true
+		}
+	}
+
+	if !isTouchThermostatDetected() {
+		log.Errorf("legacy off command did not report off; suppressing touch raw-4 fallback because no touch thermostat discovery was seen")
+		return false
+	}
+
+	log.Infof("legacy off command did not take; trying touch thermostat off command")
+	if !writeCurrentMode(4, true) {
+		return false
+	}
+	if modeReadbackMatches("off") {
+		modeWriteNotify = true
+		touchOffCommand = true
+		return true
+	}
+
+	log.Errorf("touch thermostat off command did not report off after write")
+	return false
 }
 
 // get vacation config and status
@@ -396,16 +530,8 @@ func putConfig(zone string, param string, value string) bool {
 
 		switch param {
 		case "mode":
-			if mode, ok := stringModeToRaw(value); !ok {
-				log.Errorf("putConfig: invalid mode value '%s'", value)
+			if !writeGlobalMode(value) {
 				return false
-			} else {
-				cfg := TStatZoneParams{}
-				if infinity.ReadTable(devTSTAT, &cfg) {
-					infinity.WriteTable(devTSTAT, cfg, 0x10)
-				}
-				p.Mode = mode
-				flags = 0x10
 			}
 		case "dispZone":
 			if val, err := strconv.ParseUint(value, 10, 8); err != nil || val < 1 || val > 2 {
@@ -420,15 +546,17 @@ func putConfig(zone string, param string, value string) bool {
 			return false
 		}
 
-		// setting these parameters can make our thermostat lose up to 1 min of time keeping
-		// so we include a time/day setting with every command; adding 30s helps in rounding to
-		// the nearest minute given truncation to one-minute resolution
-		tnow := time.Now().Add(time.Second * 30)
-		p.DispDOW = uint8(tnow.Weekday())
-		p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
-		flags = flags | 0x180
+		if flags != 0 {
+			// setting these parameters can make our thermostat lose up to 1 min of time keeping
+			// so we include a time/day setting with every command; adding 30s helps in rounding to
+			// the nearest minute given truncation to one-minute resolution
+			tnow := time.Now().Add(time.Second * 30)
+			p.DispDOW = uint8(tnow.Weekday())
+			p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
+			flags = flags | 0x180
 
-		infinity.WriteTable(devTSTAT, p, flags)
+			infinity.WriteTable(devTSTAT, p, flags)
+		}
 
 		return true
 	}
@@ -734,7 +862,7 @@ func attachSnoops() {
 	// Snoop 2026 smart sensor responses.  The legacy thermostat zone tables
 	// are zero on this system, but smart sensors publish live zone status.
 	infinity.snoopResponse(0x2200, 0x27ff, func(frame *InfinityFrame) {
-		if len(frame.data) < 17 || !bytes.Equal(frame.data[0:3], []byte{0x00, 0x04, 0x1e}) {
+		if frame.op != opRESPONSE || len(frame.data) < 17 || !bytes.Equal(frame.data[0:3], []byte{0x00, 0x04, 0x1e}) {
 			return
 		}
 		zi := int(frame.src >> 8) - 0x21
