@@ -152,9 +152,7 @@ func webserver(port int) {
 			}
 
 			if len(args.Mode) > 0 {
-				m, _ := stringModeToRaw(args.Mode)
-				p := TStatCurrentParams{Mode: m}
-				infinity.WriteTable(devTSTAT, p, 0x10)
+				_ = putConfig("0", "mode", args.Mode)
 			}
 		}
 	})

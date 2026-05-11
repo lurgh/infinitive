@@ -146,6 +146,18 @@ func (c *BusCapture) LogFrame(direction string, raw []byte, frame *InfinityFrame
 	c.logRecord(rec)
 }
 
+func (c *BusCapture) LogRaw(direction string, raw []byte, note string) {
+	rec := busCaptureRecord{
+		Timestamp: time.Now().Format(time.RFC3339Nano),
+		UnixMs:    time.Now().UnixMilli(),
+		Direction: direction,
+		RawHex:    hex.EncodeToString(raw),
+		Note:      note,
+	}
+
+	c.logRecord(rec)
+}
+
 func (c *BusCapture) logRecord(rec busCaptureRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
