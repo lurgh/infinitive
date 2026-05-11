@@ -29,7 +29,8 @@ func stringModeToRaw(mode string) (uint8, bool) {
 	case "auto":
 		return 2, true
 	case "off":
-		return 5, true
+		// 2026 touch thermostats accept 4 as the off command, then report 5.
+		return 4, true
 	default:
 		return 5, false
 	}

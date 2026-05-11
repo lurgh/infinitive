@@ -400,6 +400,10 @@ func putConfig(zone string, param string, value string) bool {
 				log.Errorf("putConfig: invalid mode value '%s'", value)
 				return false
 			} else {
+				cfg := TStatZoneParams{}
+				if infinity.ReadTable(devTSTAT, &cfg) {
+					infinity.WriteTable(devTSTAT, cfg, 0x10)
+				}
 				p.Mode = mode
 				flags = 0x10
 			}
