@@ -34,6 +34,23 @@ type discoveryTopicButton struct {
 	Avail	    string    `json:"availability_topic,omitempty"`
 }
 
+type discoveryTopicBinarySensor struct {
+	Topic        string `json:"state_topic"`
+	Name         string `json:"name"`
+	Device_class string `json:"device_class,omitempty"`
+	Payload_on   string `json:"payload_on,omitempty"`
+	Payload_off  string `json:"payload_off,omitempty"`
+	Unique_id    string `json:"unique_id"`
+	Avail        string `json:"availability_topic,omitempty"`
+}
+
+type discoveryTopicTextSensor struct {
+	Topic     string `json:"state_topic"`
+	Name      string `json:"name"`
+	Unique_id string `json:"unique_id"`
+	Avail     string `json:"availability_topic,omitempty"`
+}
+
 type EventDispatcher struct {
 	listeners  map[*EventListener]bool
 	broadcast  chan []byte
@@ -210,33 +227,69 @@ func mqttOnConnect(cl mqtt.Client) {
 
 	a := instanceName + "/available"	// availability_topic
 
-	sensors := []discoveryTopicSensor {
-		{ "/outdoorTemp", "Outdoor Temperature", "temperature", "measurement", "°F", "hvac-sensors-odt", a },
-		{ "/coilTemp", "Outdoor Coil Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-oct", a },
-		{ "/outsideTemp", "Outdoor Air Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-oat", a },
-		{ "/humidity", "Indoor Humidity", "humidity", "measurement", "%", "hvac-sensors-hum", a},
-		{ "/rawMode", "Raw Mode", "", "measurement", "", "hvac-sensors-rawmode", a},
-		{ "/blowerRPM", "Blower RPM", "", "measurement", "RPM", "hvac-sensors-blowerrpm", a},
-		{ "/airflowCFM", "Airflow CFM", "", "measurement", "CFM", "hvac-sensors-aflo", a},
-		{ "/staticPressure", "Static Pressure", "distance", "measurement", "in", "hvac-sensors-ahsp", a},
-		{ "/coolStage", "Cool Stage", "", "measurement", "", "hvac-sensors-acstage", a},
-		{ "/heatStage", "Heat Stage", "", "measurement", "", "hvac-sensors-heatstage", a},
-		{ "/action", "Action", "enum", "", "", "hvac-sensors-actn", a},
-		{ "/dispZone", "Current Zone on Display", "", "measurement", "", "hvac-sensors-zdisp", a},
-		{ "/dispDOW", "Current system Day of Week", "", "measurement", "", "hvac-sensors-dow", a},
-		{ "/dispTimeDiff", "Current system time skew", "", "measurement", "", "hvac-sensors-tskew", a},
+		sensors := []discoveryTopicSensor {
+			{ "/outdoorTemp", "Outdoor Temperature", "temperature", "measurement", "°F", "hvac-sensors-odt", a },
+			{ "/coilTemp", "Outdoor Coil Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-oct", a },
+			{ "/outsideTemp", "Outdoor Air Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-oat", a },
+			{ "/humidity", "Indoor Humidity", "humidity", "measurement", "%", "hvac-sensors-hum", a},
+			{ "/rawMode", "Raw Mode", "", "measurement", "", "hvac-sensors-rawmode", a},
+			{ "/blowerRPM", "Blower RPM", "", "measurement", "RPM", "hvac-sensors-blowerrpm", a},
+			{ "/airflowCFM", "Airflow CFM", "", "measurement", "CFM", "hvac-sensors-aflo", a},
+			{ "/staticPressure", "Static Pressure", "distance", "measurement", "in", "hvac-sensors-ahsp", a},
+			{ "/coolStage", "Cool Stage", "", "measurement", "", "hvac-sensors-acstage", a},
+			{ "/heatStage", "Heat Stage", "", "measurement", "", "hvac-sensors-heatstage", a},
+			{ "/action", "Action", "enum", "", "", "hvac-sensors-actn", a},
+			{ "/dispZone", "Current Zone on Display", "", "measurement", "", "hvac-sensors-zdisp", a},
+			{ "/dispDOW", "Current system Day of Week", "", "measurement", "", "hvac-sensors-dow", a},
+			{ "/dispTimeDiff", "Current system time skew", "", "measurement", "", "hvac-sensors-tskew", a},
+			{ "/compressorRPM", "Compressor RPM", "", "measurement", "RPM", "hvac-sensors-compressorrpm", a},
+			{ "/oduDemand", "ODU Demand", "", "measurement", "%", "hvac-sensors-odu-demand", a},
+			{ "/oduStage", "ODU Stage", "", "measurement", "", "hvac-sensors-odu-stage", a},
+			{ "/oduModulation", "ODU Modulation", "", "measurement", "", "hvac-sensors-odu-mod", a},
+			{ "/oduSetpoint", "ODU Setpoint", "temperature", "measurement", "°F", "hvac-sensors-odu-setpoint", a},
+			{ "/oduMode", "ODU Mode", "", "measurement", "", "hvac-sensors-odu-mode", a},
+			{ "/oduOutdoorTemp", "ODU Outdoor Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-outdoor", a},
+			{ "/oduCoilTemp", "ODU Coil Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-coil", a},
+			{ "/oduSuctionTemp", "ODU Suction Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-suction", a},
+			{ "/oduLiquidTemp", "ODU Liquid Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-liquid", a},
+			{ "/oduIndoorCoilTemp", "ODU Indoor Coil Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-indoor-coil", a},
+			{ "/oduDischargeTemp", "ODU Discharge Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-discharge", a},
+			{ "/oduFloat1", "ODU Float 1", "temperature", "measurement", "°F", "hvac-sensors-odu-float1", a},
+			{ "/oduFloat2", "ODU Float 2", "temperature", "measurement", "°F", "hvac-sensors-odu-float2", a},
+			{ "/oduFloat3", "ODU Float 3", "temperature", "measurement", "°F", "hvac-sensors-odu-float3", a},
+			{ "/oduFloat4", "ODU Float 4", "temperature", "measurement", "°F", "hvac-sensors-odu-float4", a},
+			{ "/oduFloat5", "ODU Float 5", "temperature", "measurement", "°F", "hvac-sensors-odu-float5", a},
+			{ "/oduFloat6", "ODU Float 6", "", "measurement", "", "hvac-sensors-odu-float6", a},
+			{ "/vacation/active", "Vacation Mode Active", "enum", "", "", "hvac-sensors-vacay-active", a},  // maybe should be a binary_sensor
+			{ "/vacation/days", "Vacation Mode Days Remaining", "duration", "measurement", "d", "hvac-sensors-vacay-days", a},
+			{ "/vacation/hours", "Vacation Mode Hours Remaining", "duration", "measurement", "h", "hvac-sensors-vacay-hours", a},
+			{ "/vacation/minTemp", "Vacation Mode Minimum Temperature", "temperature", "measurement", "°F", "hvac-sensors-vacay-mint", a},
+			{ "/vacation/maxTemp", "Vacation Mode Maximum Temperature", "temperature", "measurement", "°F", "hvac-sensors-vacay-maxt", a},
+			{ "/vacation/minHumidity", "Vacation Mode Minimum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-minh", a},
+			{ "/vacation/maxHumidity", "Vacation Mode Maximum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-maxh", a},
+			{ "/vacation/fanMode", "Vacation Mode Fan Mode", "enum", "", "", "hvac-sensors-vacay-fm", a},
+		}
 
-		{ "/vacation/active", "Vacation Mode Active", "enum", "", "", "hvac-sensors-vacay-active", a},  // maybe should be a binary_sensor
-		{ "/vacation/days", "Vacation Mode Days Remaining", "duration", "measurement", "d", "hvac-sensors-vacay-days", a},
-		{ "/vacation/hours", "Vacation Mode Hours Remaining", "duration", "measurement", "h", "hvac-sensors-vacay-hours", a},
-		{ "/vacation/minTemp", "Vacation Mode Minimum Temperature", "temperature", "measurement", "°F", "hvac-sensors-vacay-mint", a},
-		{ "/vacation/maxTemp", "Vacation Mode Maximum Temperature", "temperature", "measurement", "°F", "hvac-sensors-vacay-maxt", a},
-		{ "/vacation/minHumidity", "Vacation Mode Minimum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-minh", a},
-		{ "/vacation/maxHumidity", "Vacation Mode Maximum Humidity", "humidity", "measurement", "%", "hvac-sensors-vacay-maxh", a},
-		{ "/vacation/fanMode", "Vacation Mode Fan Mode", "enum", "", "", "hvac-sensors-vacay-fm", a},
-	}
+		binarySensors := []discoveryTopicBinarySensor {
+			{ "/compressorRunning", "Compressor Running", "running", "true", "false", "hvac-binary-compressor-running", a },
+			{ "/electricHeat", "Electric Heat Active", "heat", "true", "false", "hvac-binary-electric-heat", a },
+		}
 
-	buttons := []discoveryTopicButton {
+		textSensors := []discoveryTopicTextSensor {
+			{ "/tstatSSID", "Thermostat WiFi SSID", "hvac-text-tstat-ssid", a },
+			{ "/tstatHostname", "Thermostat Hostname", "hvac-text-tstat-hostname", a },
+			{ "/tstatWifiMac", "Thermostat WiFi MAC", "hvac-text-tstat-wifi-mac", a },
+			{ "/tstatWifiPassword", "Thermostat WiFi Password", "hvac-text-tstat-wifi-password", a },
+			{ "/tstatCloudHost", "Thermostat Cloud Host", "hvac-text-tstat-cloud-host", a },
+			{ "/tstatProxyServer", "Thermostat Proxy Server", "hvac-text-tstat-proxy-server", a },
+			{ "/tstatDealerName", "Thermostat Dealer Name", "hvac-text-tstat-dealer-name", a },
+			{ "/tstatDealerBrand", "Thermostat Dealer Brand", "hvac-text-tstat-dealer-brand", a },
+			{ "/tstatDealerURL", "Thermostat Dealer URL", "hvac-text-tstat-dealer-url", a },
+			{ "/comfortProfile", "Comfort Profile", "hvac-text-comfort-profile", a },
+			{ "/scheduleProgram", "Schedule Program", "hvac-text-schedule-program", a },
+		}
+
+		buttons := []discoveryTopicButton {
 		{ "/dispZone/set", "Display Zone 1", "1", 0, false, "hvac-zdisp-1", a},
 		{ "/dispZone/set", "Display Zone 2", "2", 0, false, "hvac-zdisp-2", a},
 		{ "/vacation/hours/set", "Vacation Cancel", "0", 0, false, "hvac-vac-can", a},
@@ -259,28 +312,60 @@ func mqttOnConnect(cl mqtt.Client) {
 		{ "/vacation/days/set", "Vacation 7 Days", "7", 0, false, "hvac-vac-7d", a},
 	}
 
-	// write discovery topics for HA sensors
-	for _, v := range sensors {
-		v.Topic = instanceName + v.Topic
-		if instanceName != "infinitive" {
-			v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
-			v.Unique_id =  instanceName + "-" + v.Unique_id
-		} else {
-			v.Name = "HVAC " + v.Name
+		// write discovery topics for HA sensors
+		for _, v := range sensors {
+			v.Topic = instanceName + v.Topic
+			if instanceName != "infinitive" {
+				v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
+				v.Unique_id =  instanceName + "-" + v.Unique_id
+			} else {
+				v.Name = "HVAC " + v.Name
+			}
+			j, err := json.Marshal(&v)
+			log.Infof("MQTT PUB %v: %s", err, j)
+			if err == nil {
+				_ = cl.Publish("homeassistant/sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+			}
 		}
-		j, err := json.Marshal(&v)
-		log.Infof("MQTT PUB %v: %s", err, j)
-		if err == nil {
-			_ = cl.Publish("homeassistant/sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
-		}
-	}
 
-	// write discovery topics for HA buttons
-	for _, v := range buttons {
-		v.Topic = instanceName + v.Topic
-		if instanceName != "infinitive" {
-			v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
-			v.Unique_id = instanceName + "-" + v.Unique_id
+		// write discovery topics for HA binary sensors
+		for _, v := range binarySensors {
+			v.Topic = instanceName + v.Topic
+			if instanceName != "infinitive" {
+				v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
+				v.Unique_id = instanceName + "-" + v.Unique_id
+			} else {
+				v.Name = "HVAC " + v.Name
+			}
+			j, err := json.Marshal(&v)
+			log.Infof("MQTT PUB %v: %s", err, j)
+			if err == nil {
+				_ = cl.Publish("homeassistant/binary_sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+			}
+		}
+
+		// write discovery topics for HA text sensors
+		for _, v := range textSensors {
+			v.Topic = instanceName + v.Topic
+			if instanceName != "infinitive" {
+				v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
+				v.Unique_id = instanceName + "-" + v.Unique_id
+			} else {
+				v.Name = "HVAC " + v.Name
+			}
+			j, err := json.Marshal(&v)
+			log.Infof("MQTT PUB %v: %s", err, j)
+			if err == nil {
+				_ = cl.Publish("homeassistant/text_sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+			}
+		}
+
+		// write discovery topics for HA buttons
+		for _, v := range buttons {
+			v.Topic = instanceName + v.Topic
+			if instanceName != "infinitive" {
+				v.Name = strings.Replace(instanceName, "_", " ", -1) + " " + v.Name
+				v.Unique_id = instanceName + "-" + v.Unique_id
 		} else {
 			v.Name = "HVAC " + v.Name
 		}
@@ -333,12 +418,16 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 	a := instanceName + "/available"	// availability_topic
 
 	// per-zone "bonus" sensors (outside of the Climate platform model)
-	sensors := []discoveryTopicSensor {
-		{ "%[4]s/zone/%[2]d/damperPos", "%[1]s Damper Postion", "", "measurement", "%", "hvac-sensors-z%[2]d-dpos", a},
-		{ "%[4]s/zone/%[2]d/flowWeight", "%[1]s Airflow Weight", "", "measurement", "", "hvac-sensors-z%[2]d-fwgt", a},
-		{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[1]s Override Duration", "duration", "measurement", "min", "hvac-sensors-z%[2]d-odur", a},
-		{ "%[4]s/zone/%[2]d/temp16", "%[1]s Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-z%[2]d-t16", a},
-	}
+		sensors := []discoveryTopicSensor {
+			{ "%[4]s/zone/%[2]d/damperPos", "%[1]s Damper Postion", "", "measurement", "%", "hvac-sensors-z%[2]d-dpos", a},
+			{ "%[4]s/zone/%[2]d/flowWeight", "%[1]s Airflow Weight", "", "measurement", "", "hvac-sensors-z%[2]d-fwgt", a},
+			{ "%[4]s/zone/%[2]d/overrideDurationMins", "%[1]s Override Duration", "duration", "measurement", "min", "hvac-sensors-z%[2]d-odur", a},
+			{ "%[4]s/zone/%[2]d/temp16", "%[1]s Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-z%[2]d-t16", a},
+		}
+		textSensors := []discoveryTopicTextSensor {
+			{ "%[4]s/zone/%[2]d/comfortProfile", "%[1]s Comfort Profile", "hvac-text-z%[2]d-comfort-profile", a },
+			{ "%[4]s/zone/%[2]d/scheduleProgram", "%[1]s Schedule Program", "hvac-text-z%[2]d-schedule-program", a },
+		}
 	tempu := "F"
 	if tu > 0 { tempu = "C" }
 	duid := fmt.Sprintf("climate-zone-%d", zi+1)
@@ -357,10 +446,10 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 	_ = mqttClient.Publish("homeassistant/climate/infinitive/" + duid + "/config", 0, true, dmsg)
 
 	// write discovery topics for per-zone sensors
-	for _, v := range sensors {
-		v.Topic = fmt.Sprintf(v.Topic, zn, zi+1, tempu, instanceName)
-		v.Name = fmt.Sprintf(v.Name, zn, zi+1, tempu, instanceName)
-		v.Unique_id = fmt.Sprintf(v.Unique_id, zn, zi+1, tempu, instanceName)
+		for _, v := range sensors {
+			v.Topic = fmt.Sprintf(v.Topic, zn, zi+1, tempu, instanceName)
+			v.Name = fmt.Sprintf(v.Name, zn, zi+1, tempu, instanceName)
+			v.Unique_id = fmt.Sprintf(v.Unique_id, zn, zi+1, tempu, instanceName)
 		
 		if instanceName != "infinitive" {
 			v.Unique_id =  instanceName + "-" + v.Unique_id
@@ -369,12 +458,28 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 		j, err := json.Marshal(&v)
 		log.Infof("MQTT ZONE SENSOR DISC: %v", j)
 		if err == nil {
-			_ = mqttClient.Publish("homeassistant/sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+				_ = mqttClient.Publish("homeassistant/sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+			}
 		}
-	}
 
-	mqttZoneFlags[zi] = true
-}
+		for _, v := range textSensors {
+			v.Topic = fmt.Sprintf(v.Topic, zn, zi+1, tempu, instanceName)
+			v.Name = fmt.Sprintf(v.Name, zn, zi+1, tempu, instanceName)
+			v.Unique_id = fmt.Sprintf(v.Unique_id, zn, zi+1, tempu, instanceName)
+
+			if instanceName != "infinitive" {
+				v.Unique_id = instanceName + "-" + v.Unique_id
+			}
+
+			j, err := json.Marshal(&v)
+			log.Infof("MQTT ZONE TEXT SENSOR DISC: %v", j)
+			if err == nil {
+				_ = mqttClient.Publish("homeassistant/text_sensor/infinitive/" + v.Unique_id + "/config", 0, true, j)
+			}
+		}
+
+		mqttZoneFlags[zi] = true
+	}
 
 func init() {
 	go Dispatcher.run()

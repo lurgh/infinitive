@@ -457,6 +457,24 @@ func (p *InfinityProtocol) Read(dst uint16, addr InfinityTableAddr, params inter
 	return p.send(dst, opREAD, addr[:], params)
 }
 
+func (p *InfinityProtocol) ReadRawFrameData(dst uint16, addr InfinityTableAddr) ([]byte, bool) {
+	return p.ReadRawPayload(dst, addr[:])
+}
+
+func (p *InfinityProtocol) ReadRawPayload(dst uint16, payload []byte) ([]byte, bool) {
+	f := InfinityFrame{src: devSAM, dst: dst, op: opREAD, data: payload}
+	act := &Action{requestFrame: &f, ch: make(chan bool)}
+
+	p.actionCh <- act
+	ok := <-act.ch
+	if !ok || act.responseFrame == nil || act.responseFrame.data == nil {
+		return nil, false
+	}
+	data := make([]byte, len(act.responseFrame.data))
+	copy(data, act.responseFrame.data)
+	return data, true
+}
+
 func (p *InfinityProtocol) ReadTable(dst uint16, table InfinityTable) bool {
 	addr := table.addr()
 	p.stats.srdt++
