@@ -285,8 +285,6 @@ func mqttOnConnect(cl mqtt.Client) {
 			{ "/tstatDealerName", "Thermostat Dealer Name", "hvac-text-tstat-dealer-name", a },
 			{ "/tstatDealerBrand", "Thermostat Dealer Brand", "hvac-text-tstat-dealer-brand", a },
 			{ "/tstatDealerURL", "Thermostat Dealer URL", "hvac-text-tstat-dealer-url", a },
-			{ "/comfortProfile", "Comfort Profile", "hvac-text-comfort-profile", a },
-			{ "/scheduleProgram", "Schedule Program", "hvac-text-schedule-program", a },
 		}
 
 		buttons := []discoveryTopicButton {
@@ -425,8 +423,6 @@ func mqttDiscoverZone(zi int, zn string, tu uint8) {
 			{ "%[4]s/zone/%[2]d/temp16", "%[1]s Raw Temperature", "temperature", "measurement", "°F", "hvac-sensors-z%[2]d-t16", a},
 		}
 		textSensors := []discoveryTopicTextSensor {
-			{ "%[4]s/zone/%[2]d/comfortProfile", "%[1]s Comfort Profile", "hvac-text-z%[2]d-comfort-profile", a },
-			{ "%[4]s/zone/%[2]d/scheduleProgram", "%[1]s Schedule Program", "hvac-text-z%[2]d-schedule-program", a },
 		}
 	tempu := "F"
 	if tu > 0 { tempu = "C" }

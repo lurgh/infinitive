@@ -794,8 +794,19 @@ func publishAnyTopic(topic string, value interface{}) {
 	mqttCache.update(fmt.Sprintf("mqtt/%s/%s", instanceName, topic), value)
 }
 
-var comfortProfileNames = []string{"home", "away", "sleep", "wake", "manual"}
-var comfortProfileTopicNames = []string{"Home", "Away", "Sleep", "Wake", "Manual"}
+func deleteMqttTopic(topic string) {
+	fullTopic := fmt.Sprintf("%s/%s", instanceName, topic)
+	mqttCache.cacheMutex.Lock()
+	delete(mqttCache.cacheMap, "mqtt/"+fullTopic)
+	mqttCache.cacheMutex.Unlock()
+	if mqttClient != nil && mqttClient.IsConnected() {
+		log.Infof("MQTT DEL: %s", fullTopic)
+		mqttClient.Publish(fullTopic, 0, true, []byte{})
+	}
+}
+
+var comfortProfileNames = []string{"home", "away", "sleep", "wake"}
+var comfortProfileTopicNames = []string{"Home", "Away", "Sleep", "Wake"}
 var comfortProfileFanNames = []string{"off", "low", "med", "high"}
 var scheduleDayNames = []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 
@@ -807,20 +818,21 @@ func comfortProfileFanName(fan uint8) string {
 }
 
 func publishComfortProfile(topic string, data []byte) {
-	if len(data) < len(comfortProfileNames)*7 {
+	if len(data) < 5*7 {
 		return
 	}
-	parts := make([]string, 0, len(comfortProfileNames))
-	for i, name := range comfortProfileNames {
+	deleteMqttTopic(topic)
+	deleteMqttTopic(topic+"ManualHeatSetPoint")
+	deleteMqttTopic(topic+"ManualCoolSetPoint")
+	deleteMqttTopic(topic+"ManualFanMode")
+	for i := range comfortProfileNames {
 		base := i * 7
 		topicBase := topic + comfortProfileTopicNames[i]
 		fan := comfortProfileFanName(data[base+2])
 		publishAnyTopic(topicBase+"HeatSetPoint", data[base])
 		publishAnyTopic(topicBase+"CoolSetPoint", data[base+1])
 		publishTextTopic(topicBase+"FanMode", fan)
-		parts = append(parts, fmt.Sprintf("%s: ht=%d cl=%d fan=%s", name, data[base], data[base+1], fan))
 	}
-	publishTextTopic(topic, strings.Join(parts, "; "))
 }
 
 func scheduleTimeString(tick uint8) string {
@@ -842,7 +854,8 @@ func publishSchedule(topic string, data []byte) {
 	if len(data) < len(scheduleDayNames)*10 {
 		return
 	}
-	publishTextTopic(topic+"Raw", hex.EncodeToString(data))
+	deleteMqttTopic(topic)
+	deleteMqttTopic(topic+"Raw")
 	for dayIndex, dayName := range scheduleDayNames {
 		dayTopic := topic + dayName
 		dayData := data[dayIndex*10 : dayIndex*10+10]
@@ -856,9 +869,12 @@ func publishSchedule(topic string, data []byte) {
 			if timeValue != "" {
 				profileValue = scheduleProfileName(activity)
 				parts = append(parts, fmt.Sprintf("%s %s", timeValue, profileValue))
+				publishAnyTopic(periodTopic+"Time", timeValue)
+				publishAnyTopic(periodTopic+"ComfortProfile", profileValue)
+			} else {
+				deleteMqttTopic(periodTopic+"Time")
+				deleteMqttTopic(periodTopic+"ComfortProfile")
 			}
-			publishAnyTopic(periodTopic+"Time", timeValue)
-			publishAnyTopic(periodTopic+"ComfortProfile", profileValue)
 		}
 		publishAnyTopic(dayTopic, strings.Join(parts, "; "))
 	}
