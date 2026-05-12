@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -74,12 +73,6 @@ type HeatPump struct {
 	LiquidTemp       float32 `json:"liquidTemp"`
 	IndoorCoilTemp   float32 `json:"indoorCoilTemp"`
 	DischargeTemp    float32 `json:"dischargeTemp"`
-	ODUFloat1        float32 `json:"oduFloat1"`
-	ODUFloat2        float32 `json:"oduFloat2"`
-	ODUFloat3        float32 `json:"oduFloat3"`
-	ODUFloat4        float32 `json:"oduFloat4"`
-	ODUFloat5        float32 `json:"oduFloat5"`
-	ODUFloat6        float32 `json:"oduFloat6"`
 }
 
 type DamperPosition struct {
@@ -99,6 +92,8 @@ type runtimeZone struct {
 var runtimeZoneMu sync.Mutex
 var runtimeZones [8]runtimeZone
 var runtimeOutdoorTemp uint8
+var activeZones [8]bool
+var activeZonesKnown bool
 var modeWriteNotify bool
 var touchOffCommand bool
 var touchThermostatDetected bool
@@ -204,10 +199,6 @@ func oduTempAt(data []byte, offset int) (float32, bool) {
 	return temp, plausibleODUTemp(temp)
 }
 
-func float32BE(data []byte, offset int) float32 {
-	return math.Float32frombits(binary.BigEndian.Uint32(data[offset:offset+4]))
-}
-
 func updateRuntimeZone(zi int, currentTemp uint8, currentHumidity uint8, heatSetpoint uint8, coolSetpoint uint8) {
 	if zi < 0 || zi >= len(runtimeZones) {
 		return
@@ -234,6 +225,28 @@ func updateRuntimeZone(zi int, currentTemp uint8, currentHumidity uint8, heatSet
 	if seen {
 		runtimeZones[zi].Seen = true
 	}
+}
+
+func updateActiveZones(zones []TStatZoneConfig) {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	activeZones = [8]bool{}
+	for _, zone := range zones {
+		zi := int(zone.ZoneNumber) - 1
+		if zi >= 0 && zi < len(activeZones) {
+			activeZones[zi] = true
+		}
+	}
+	activeZonesKnown = len(zones) > 0
+}
+
+func isActiveZone(zi int) bool {
+	if zi < 0 || zi >= len(activeZones) {
+		return false
+	}
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	return !activeZonesKnown || activeZones[zi]
 }
 
 func updateRuntimeOutdoorTemp(outdoorTemp uint8) {
@@ -478,6 +491,7 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 	}
 
 	tstat.Zones = zoneArr[0:zc]
+	updateActiveZones(tstat.Zones)
 
 	return &tstat, true
 }
@@ -805,6 +819,19 @@ func deleteMqttTopic(topic string) {
 	}
 }
 
+func deleteMqttDiscovery(component string, uniqueID string) {
+	if mqttClient == nil || !mqttClient.IsConnected() {
+		return
+	}
+	id := uniqueID
+	if instanceName != "infinitive" {
+		id = instanceName + "-" + id
+	}
+	topic := fmt.Sprintf("homeassistant/%s/infinitive/%s/config", component, id)
+	log.Infof("MQTT DISC DEL: %s", topic)
+	mqttClient.Publish(topic, 0, true, []byte{})
+}
+
 var comfortProfileNames = []string{"home", "away", "sleep", "wake"}
 var comfortProfileTopicNames = []string{"Home", "Away", "Sleep", "Wake"}
 var comfortProfileFanNames = []string{"off", "low", "med", "high"}
@@ -880,17 +907,63 @@ func publishSchedule(topic string, data []byte) {
 	}
 }
 
+func deleteComfortProfileTopics(topic string) {
+	deleteMqttTopic(topic)
+	for _, profile := range append(comfortProfileTopicNames, "Manual") {
+		topicBase := topic + profile
+		deleteMqttTopic(topicBase+"HeatSetPoint")
+		deleteMqttTopic(topicBase+"CoolSetPoint")
+		deleteMqttTopic(topicBase+"FanMode")
+	}
+}
+
+func deleteScheduleTopics(topic string) {
+	deleteMqttTopic(topic)
+	deleteMqttTopic(topic+"Raw")
+	for _, dayName := range scheduleDayNames {
+		dayTopic := topic + dayName
+		deleteMqttTopic(dayTopic)
+		for period := 1; period <= 5; period++ {
+			periodTopic := fmt.Sprintf("%sPeriod%d", dayTopic, period)
+			deleteMqttTopic(periodTopic+"Time")
+			deleteMqttTopic(periodTopic+"ComfortProfile")
+		}
+	}
+}
+
+var deprecatedMqttTopicsDeleted bool
+
+func deleteDeprecatedMqttTopics() {
+	if deprecatedMqttTopicsDeleted || mqttClient == nil || !mqttClient.IsConnected() {
+		return
+	}
+	deprecatedMqttTopicsDeleted = true
+
+	deleteComfortProfileTopics("comfortProfile")
+	deleteScheduleTopics("scheduleProgram")
+	deleteMqttDiscovery("text_sensor", "hvac-text-comfort-profile")
+	deleteMqttDiscovery("text_sensor", "hvac-text-schedule-program")
+
+	for zi := 1; zi <= 8; zi++ {
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfile", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfileManualHeatSetPoint", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfileManualCoolSetPoint", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfileManualFanMode", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/scheduleProgram", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/scheduleProgramRaw", zi))
+		deleteMqttDiscovery("text_sensor", fmt.Sprintf("hvac-text-z%d-comfort-profile", zi))
+		deleteMqttDiscovery("text_sensor", fmt.Sprintf("hvac-text-z%d-schedule-program", zi))
+	}
+
+	for i := 1; i <= 6; i++ {
+		deleteMqttTopic(fmt.Sprintf("oduFloat%d", i))
+		deleteMqttDiscovery("sensor", fmt.Sprintf("hvac-sensors-odu-float%d", i))
+	}
+}
+
 func publishThermostatMetadata(index int) {
-	switch index % 5 {
+	switch index % 3 {
 	case 0:
-		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x40, 0x02}); ok {
-			publishSchedule("scheduleProgram", data)
-		}
-	case 1:
-		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x40, 0x0a}); ok {
-			publishComfortProfile("comfortProfile", data)
-		}
-	case 2:
 		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x46, 0x08}); ok {
 			publishTextTopic("tstatWifiMac", cstrAt(data, 4))
 			publishTextTopic("tstatSSID", cstrAt(data, 24))
@@ -899,12 +972,12 @@ func publishThermostatMetadata(index int) {
 			}
 			publishTextTopic("tstatHostname", cstrAt(data, 139))
 		}
-	case 3:
+	case 1:
 		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x46, 0x09}); ok {
 			publishTextTopic("tstatCloudHost", cstrAt(data, 0))
 			publishTextTopic("tstatProxyServer", cstrAt(data, 67))
 		}
-	case 4:
+	case 2:
 		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x46, 0x0a}); ok {
 			publishTextTopic("tstatDealerName", cstrAt(data, 0))
 			publishTextTopic("tstatDealerBrand", cstrAt(data, 50))
@@ -917,11 +990,17 @@ func publishZoneProgram(zi int) {
 	if zi < 0 || zi > 7 {
 		return
 	}
+	topicPrefix := fmt.Sprintf("zone/%d", zi+1)
+	if !isActiveZone(zi) {
+		deleteScheduleTopics(topicPrefix+"/scheduleProgram")
+		deleteComfortProfileTopics(topicPrefix+"/comfortProfile")
+		return
+	}
 	if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x40, byte(0x02+zi)}); ok {
-		publishSchedule(fmt.Sprintf("zone/%d/scheduleProgram", zi+1), data)
+		publishSchedule(topicPrefix+"/scheduleProgram", data)
 	}
 	if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x40, byte(0x0a+zi)}); ok {
-		publishComfortProfile(fmt.Sprintf("zone/%d/comfortProfile", zi+1), data)
+		publishComfortProfile(topicPrefix+"/comfortProfile", data)
 	}
 }
 
@@ -955,6 +1034,7 @@ func getDamperPosition() (DamperPosition, bool) {
 func metadataPoller() {
 	meta_i := 0
 	for {
+		deleteDeprecatedMqttTopics()
 		publishThermostatMetadata(meta_i)
 		publishZoneProgram(meta_i % 8)
 		meta_i++
@@ -1145,20 +1225,6 @@ func attachSnoops() {
 				heatPump.Setpoint = data[4]
 				wsCache.update("heatpump", &heatPump)
 				mqttCache.update(fmt.Sprintf("mqtt/%s/oduSetpoint", instanceName), heatPump.Setpoint)
-			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x06, 0x1f}) && len(data) >= 25 {
-				heatPump.ODUFloat1 = float32BE(data, 1)
-				heatPump.ODUFloat2 = float32BE(data, 5)
-				heatPump.ODUFloat3 = float32BE(data, 9)
-				heatPump.ODUFloat4 = float32BE(data, 13)
-				heatPump.ODUFloat5 = float32BE(data, 17)
-				heatPump.ODUFloat6 = float32BE(data, 21)
-				wsCache.update("heatpump", &heatPump)
-				mqttCache.update(fmt.Sprintf("mqtt/%s/oduFloat1", instanceName), heatPump.ODUFloat1)
-				mqttCache.update(fmt.Sprintf("mqtt/%s/oduFloat2", instanceName), heatPump.ODUFloat2)
-				mqttCache.update(fmt.Sprintf("mqtt/%s/oduFloat3", instanceName), heatPump.ODUFloat3)
-				mqttCache.update(fmt.Sprintf("mqtt/%s/oduFloat4", instanceName), heatPump.ODUFloat4)
-				mqttCache.update(fmt.Sprintf("mqtt/%s/oduFloat5", instanceName), heatPump.ODUFloat5)
-				mqttCache.update(fmt.Sprintf("mqtt/%s/oduFloat6", instanceName), heatPump.ODUFloat6)
 			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x3e, 0x01}) {
 				heatPump.CoilTemp = float32(binary.BigEndian.Uint16(data[2:4])) / float32(16)
 				heatPump.OutsideTemp = float32(binary.BigEndian.Uint16(data[0:2])) / float32(16)

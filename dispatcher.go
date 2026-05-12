@@ -254,12 +254,6 @@ func mqttOnConnect(cl mqtt.Client) {
 			{ "/oduLiquidTemp", "ODU Liquid Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-liquid", a},
 			{ "/oduIndoorCoilTemp", "ODU Indoor Coil Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-indoor-coil", a},
 			{ "/oduDischargeTemp", "ODU Discharge Temperature", "temperature", "measurement", "°F", "hvac-sensors-odu-discharge", a},
-			{ "/oduFloat1", "ODU Float 1", "temperature", "measurement", "°F", "hvac-sensors-odu-float1", a},
-			{ "/oduFloat2", "ODU Float 2", "temperature", "measurement", "°F", "hvac-sensors-odu-float2", a},
-			{ "/oduFloat3", "ODU Float 3", "temperature", "measurement", "°F", "hvac-sensors-odu-float3", a},
-			{ "/oduFloat4", "ODU Float 4", "temperature", "measurement", "°F", "hvac-sensors-odu-float4", a},
-			{ "/oduFloat5", "ODU Float 5", "temperature", "measurement", "°F", "hvac-sensors-odu-float5", a},
-			{ "/oduFloat6", "ODU Float 6", "", "measurement", "", "hvac-sensors-odu-float6", a},
 			{ "/vacation/active", "Vacation Mode Active", "enum", "", "", "hvac-sensors-vacay-active", a},  // maybe should be a binary_sensor
 			{ "/vacation/days", "Vacation Mode Days Remaining", "duration", "measurement", "d", "hvac-sensors-vacay-days", a},
 			{ "/vacation/hours", "Vacation Mode Hours Remaining", "duration", "measurement", "h", "hvac-sensors-vacay-hours", a},
