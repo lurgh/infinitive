@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -57,9 +58,21 @@ type AirHandler struct {
 }
 
 type HeatPump struct {
-	CoilTemp    float32 `json:"coilTemp"`
-	OutsideTemp float32 `json:"outsideTemp"`
-	Stage       uint8   `json:"stage"`
+	CoilTemp         float32 `json:"coilTemp"`
+	OutsideTemp      float32 `json:"outsideTemp"`
+	Stage            uint8   `json:"stage"`
+	CompressorRPM    uint16  `json:"compressorRPM"`
+	CompressorRunning bool   `json:"compressorRunning"`
+	Demand           uint8   `json:"demand"`
+	ODUStage         uint8   `json:"oduStage"`
+	Modulation       uint8   `json:"modulation"`
+	Setpoint         uint8   `json:"setpoint"`
+	OperatingMode    uint8   `json:"operatingMode"`
+	OutdoorTemp      float32 `json:"outdoorTemp"`
+	SuctionTemp      float32 `json:"suctionTemp"`
+	LiquidTemp       float32 `json:"liquidTemp"`
+	IndoorCoilTemp   float32 `json:"indoorCoilTemp"`
+	DischargeTemp    float32 `json:"dischargeTemp"`
 }
 
 type DamperPosition struct {
@@ -67,6 +80,47 @@ type DamperPosition struct {
 }
 
 var zoneWeight [8]float32
+
+type runtimeZone struct {
+	Seen            bool
+	CurrentTemp     uint8
+	CurrentHumidity uint8
+	HeatSetpoint    uint8
+	CoolSetpoint    uint8
+}
+
+var runtimeZoneMu sync.Mutex
+var runtimeZones [8]runtimeZone
+var runtimeOutdoorTemp uint8
+var activeZones [8]bool
+var activeZonesKnown bool
+var modeWriteNotify bool
+var touchOffCommand bool
+var touchThermostatDetected bool
+
+func plausibleRuntimeTemp(temp uint8) bool {
+	return temp > 0 && temp <= 150
+}
+
+func plausibleRuntimeHumidity(humidity uint8) bool {
+	return humidity > 0 && humidity <= 100
+}
+
+func plausibleRuntimeSetpoint(setpoint uint8) bool {
+	return setpoint >= 35 && setpoint <= 99
+}
+
+func markTouchThermostatDetected() {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	touchThermostatDetected = true
+}
+
+func isTouchThermostatDetected() bool {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	return touchThermostatDetected
+}
 
 type Logger struct {
 	f	*os.File
@@ -77,6 +131,7 @@ type Logger struct {
 var RLogger Logger;
 
 var infinity *InfinityProtocol
+var exposeWifiPassword bool
 
 type busCaptureFlag struct {
 	enabled bool
@@ -128,6 +183,210 @@ func holdTime(ht uint16) string {
 	return fmt.Sprintf("%d:%02d", ht/60, ht % 60)
 }
 
+func int16F(data []byte, offset int) float32 {
+	return float32(int16(binary.BigEndian.Uint16(data[offset:offset+2]))) / 16
+}
+
+func plausibleODUTemp(temp float32) bool {
+	return temp > -100 && temp < 250
+}
+
+func oduTempAt(data []byte, offset int) (float32, bool) {
+	if len(data) < offset+2 {
+		return 0, false
+	}
+	temp := int16F(data, offset)
+	return temp, plausibleODUTemp(temp)
+}
+
+func updateRuntimeZone(zi int, currentTemp uint8, currentHumidity uint8, heatSetpoint uint8, coolSetpoint uint8) {
+	if zi < 0 || zi >= len(runtimeZones) {
+		return
+	}
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	seen := false
+	if plausibleRuntimeTemp(currentTemp) {
+		runtimeZones[zi].CurrentTemp = currentTemp
+		seen = true
+	}
+	if plausibleRuntimeHumidity(currentHumidity) {
+		runtimeZones[zi].CurrentHumidity = currentHumidity
+		seen = true
+	}
+	if plausibleRuntimeSetpoint(heatSetpoint) {
+		runtimeZones[zi].HeatSetpoint = heatSetpoint
+		seen = true
+	}
+	if plausibleRuntimeSetpoint(coolSetpoint) {
+		runtimeZones[zi].CoolSetpoint = coolSetpoint
+		seen = true
+	}
+	if seen {
+		runtimeZones[zi].Seen = true
+	}
+}
+
+func updateActiveZones(zones []TStatZoneConfig) {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	activeZones = [8]bool{}
+	for _, zone := range zones {
+		zi := int(zone.ZoneNumber) - 1
+		if zi >= 0 && zi < len(activeZones) {
+			activeZones[zi] = true
+		}
+	}
+	activeZonesKnown = len(zones) > 0
+}
+
+func isActiveZone(zi int) bool {
+	if zi < 0 || zi >= len(activeZones) {
+		return false
+	}
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	return !activeZonesKnown || activeZones[zi]
+}
+
+func updateRuntimeOutdoorTemp(outdoorTemp uint8) {
+	if !plausibleRuntimeTemp(outdoorTemp) {
+		return
+	}
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	runtimeOutdoorTemp = outdoorTemp
+}
+
+func getRuntimeOutdoorTemp() uint8 {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	return runtimeOutdoorTemp
+}
+
+func appendRuntimeZones(zoneArr [8]TStatZoneConfig, zc int) ([8]TStatZoneConfig, int) {
+	runtimeZoneMu.Lock()
+	defer runtimeZoneMu.Unlock()
+	for zi, rz := range runtimeZones {
+		if !rz.Seen {
+			continue
+		}
+		if zc >= len(zoneArr) {
+			break
+		}
+		holdz := false
+		zoneArr[zc] = TStatZoneConfig{
+				ZoneNumber:       uint8(zi+1),
+				CurrentTemp:      rz.CurrentTemp,
+				CurrentHumidity:  rz.CurrentHumidity,
+				FanMode:          "auto",
+				Hold:             &holdz,
+				Preset:           "none",
+				HeatSetpoint:     rz.HeatSetpoint,
+				CoolSetpoint:     rz.CoolSetpoint,
+				ZoneName:         fmt.Sprintf("Zone %d", zi+1) }
+		zc++
+	}
+	return zoneArr, zc
+}
+
+func writeCurrentMode(mode uint8, notify bool) bool {
+	if notify {
+		cfg := TStatZoneParams{}
+		if infinity.ReadTable(devTSTAT, &cfg) {
+			infinity.WriteTable(devTSTAT, cfg, 0x10)
+		}
+	}
+
+	p := TStatCurrentParams{Mode: mode}
+	// setting these parameters can make our thermostat lose up to 1 min of time keeping
+	// so we include a time/day setting with every command; adding 30s helps in rounding to
+	// the nearest minute given truncation to one-minute resolution
+	tnow := time.Now().Add(time.Second * 30)
+	p.DispDOW = uint8(tnow.Weekday())
+	p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
+
+	return infinity.WriteTable(devTSTAT, p, 0x10|0x180)
+}
+
+func readCurrentMode() (uint8, bool) {
+	params := TStatCurrentParams{}
+	if !infinity.ReadTable(devTSTAT, &params) {
+		return 0, false
+	}
+	return params.Mode & 0x0f, true
+}
+
+func modeReadbackMatches(value string) bool {
+	for i := 0; i < 3; i++ {
+		time.Sleep(time.Millisecond * 500)
+		if mode, ok := readCurrentMode(); ok {
+			if rawModeToString(mode) == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func writeGlobalMode(value string) bool {
+	if mode, ok := stringModeToRaw(value); !ok {
+		log.Errorf("putConfig: invalid mode value '%s'", value)
+		return false
+	} else if value != "off" {
+		if writeCurrentMode(mode, modeWriteNotify) && modeReadbackMatches(value) {
+			return true
+		}
+		if modeWriteNotify {
+			log.Errorf("mode command '%s' did not report expected readback", value)
+			return false
+		}
+
+		log.Infof("mode command '%s' did not take; trying thermostat notification", value)
+		if writeCurrentMode(mode, true) && modeReadbackMatches(value) {
+			modeWriteNotify = true
+			return true
+		}
+
+		log.Errorf("mode command '%s' did not report expected readback after notification", value)
+		return false
+	}
+
+	if touchOffCommand {
+		return writeCurrentMode(4, true)
+	}
+
+	if writeCurrentMode(5, modeWriteNotify) && modeReadbackMatches("off") {
+		return true
+	}
+
+	if !modeWriteNotify {
+		log.Infof("legacy off command did not take; trying thermostat notification")
+		if writeCurrentMode(5, true) && modeReadbackMatches("off") {
+			modeWriteNotify = true
+			return true
+		}
+	}
+
+	if !isTouchThermostatDetected() {
+		log.Errorf("legacy off command did not report off; suppressing touch raw-4 fallback because no touch thermostat discovery was seen")
+		return false
+	}
+
+	log.Infof("legacy off command did not take; trying touch thermostat off command")
+	if !writeCurrentMode(4, true) {
+		return false
+	}
+	if modeReadbackMatches("off") {
+		modeWriteNotify = true
+		touchOffCommand = true
+		return true
+	}
+
+	log.Errorf("touch thermostat off command did not report off after write")
+	return false
+}
+
 // get vacation config and status
 func getVacationConfig() (*APIVacationConfig, bool) {
 	vac := TStatVacationParams{}
@@ -144,15 +403,18 @@ func getVacationConfig() (*APIVacationConfig, bool) {
 // this is more efficient than getting each zone separately since all the zones' data comes in one pair of serial transactions
 // we only get the TstatSettings once, since it is assumed not to change without us restarting to pick it up
 var _tstat_settings TStatSettings
+var _tstat_settings_loaded bool
+var _empty_zone_warning_logged bool
 
 func getZonesConfig() (*TStatZonesConfig, bool) {
 	// only get the TStatSettings once after startup
-	if _tstat_settings.DealerName[0] == 0 {
+	if !_tstat_settings_loaded {
 		log.Debugf("getZonesConfig: getting TStatSettings to determine temp units")
 		ok := infinity.ReadTable(devTSTAT, &_tstat_settings)
 		if !ok {
 			return nil, false
 		}
+		_tstat_settings_loaded = true
 		log.Debugf("getZonesConfig: got temp units = %d", _tstat_settings.TempUnits)
 	}
 
@@ -177,6 +439,9 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 		DispDOW:           params.DispDOW,
 		DispTime:          params.DispTimeMin,
 		DispZone:          params.DispZone,
+	}
+	if tstat.OutdoorTemp == 0 {
+		tstat.OutdoorTemp = getRuntimeOutdoorTemp()
 	}
 
 	zoneArr := [8]TStatZoneConfig{}
@@ -214,7 +479,19 @@ func getZonesConfig() (*TStatZonesConfig, bool) {
 		}
 	}
 
+	if zc == 0 && !_empty_zone_warning_logged {
+		log.Warn("legacy thermostat zone tables are empty; no zones discovered yet")
+		_empty_zone_warning_logged = true
+	}
+	if zc == 0 {
+		zoneArr, zc = appendRuntimeZones(zoneArr, zc)
+		for zi := 0; zi < zc; zi++ {
+			mqttDiscoverZone(int(zoneArr[zi].ZoneNumber-1), zoneArr[zi].ZoneName, _tstat_settings.TempUnits)
+		}
+	}
+
 	tstat.Zones = zoneArr[0:zc]
+	updateActiveZones(tstat.Zones)
 
 	return &tstat, true
 }
@@ -307,12 +584,8 @@ func putConfig(zone string, param string, value string) bool {
 
 		switch param {
 		case "mode":
-			if mode, ok := stringModeToRaw(value); !ok {
-				log.Errorf("putConfig: invalid mode value '%s'", value)
+			if !writeGlobalMode(value) {
 				return false
-			} else {
-				p.Mode = mode
-				flags = 0x10
 			}
 		case "dispZone":
 			if val, err := strconv.ParseUint(value, 10, 8); err != nil || val < 1 || val > 2 {
@@ -327,15 +600,17 @@ func putConfig(zone string, param string, value string) bool {
 			return false
 		}
 
-		// setting these parameters can make our thermostat lose up to 1 min of time keeping
-		// so we include a time/day setting with every command; adding 30s helps in rounding to
-		// the nearest minute given truncation to one-minute resolution
-		tnow := time.Now().Add(time.Second * 30)
-		p.DispDOW = uint8(tnow.Weekday())
-		p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
-		flags = flags | 0x180
+		if flags != 0 {
+			// setting these parameters can make our thermostat lose up to 1 min of time keeping
+			// so we include a time/day setting with every command; adding 30s helps in rounding to
+			// the nearest minute given truncation to one-minute resolution
+			tnow := time.Now().Add(time.Second * 30)
+			p.DispDOW = uint8(tnow.Weekday())
+			p.DispTimeMin = uint16(tnow.Hour() * 60 + tnow.Minute())
+			flags = flags | 0x180
 
-		infinity.WriteTable(devTSTAT, p, flags)
+			infinity.WriteTable(devTSTAT, p, flags)
+		}
 
 		return true
 	}
@@ -492,6 +767,243 @@ func getRawData(dev uint16, tbl []byte) {
 	}
 }
 
+func readRawTable(dev uint16, table []byte) ([]byte, bool) {
+	var addr InfinityTableAddr
+	copy(addr[:], table[0:3])
+	raw, ok := infinity.ReadRawFrameData(dev, addr)
+	if !ok || len(raw) < 3 || !bytes.Equal(raw[0:3], table[0:3]) {
+		return nil, false
+	}
+	return raw[3:], true
+}
+
+func cstrAt(data []byte, offset int) string {
+	if offset < 0 || offset >= len(data) {
+		return ""
+	}
+	end := offset
+	for end < len(data) && data[end] != 0 {
+		end++
+	}
+	return strings.TrimSpace(string(data[offset:end]))
+}
+
+func firstCstrAt(data []byte, offsets ...int) string {
+	for _, offset := range offsets {
+		s := cstrAt(data, offset)
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func publishTextTopic(topic string, value string) {
+	if value != "" {
+		mqttCache.update(fmt.Sprintf("mqtt/%s/%s", instanceName, topic), value)
+	}
+}
+
+func publishAnyTopic(topic string, value interface{}) {
+	mqttCache.update(fmt.Sprintf("mqtt/%s/%s", instanceName, topic), value)
+}
+
+func deleteMqttTopic(topic string) {
+	fullTopic := fmt.Sprintf("%s/%s", instanceName, topic)
+	mqttCache.cacheMutex.Lock()
+	delete(mqttCache.cacheMap, "mqtt/"+fullTopic)
+	mqttCache.cacheMutex.Unlock()
+	if mqttClient != nil && mqttClient.IsConnected() {
+		log.Infof("MQTT DEL: %s", fullTopic)
+		mqttClient.Publish(fullTopic, 0, true, []byte{})
+	}
+}
+
+func deleteMqttDiscovery(component string, uniqueID string) {
+	if mqttClient == nil || !mqttClient.IsConnected() {
+		return
+	}
+	id := uniqueID
+	if instanceName != "infinitive" {
+		id = instanceName + "-" + id
+	}
+	topic := fmt.Sprintf("homeassistant/%s/infinitive/%s/config", component, id)
+	log.Infof("MQTT DISC DEL: %s", topic)
+	mqttClient.Publish(topic, 0, true, []byte{})
+}
+
+var comfortProfileNames = []string{"home", "away", "sleep", "wake"}
+var comfortProfileTopicNames = []string{"Home", "Away", "Sleep", "Wake"}
+var comfortProfileFanNames = []string{"off", "low", "med", "high"}
+var scheduleDayNames = []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
+
+func comfortProfileFanName(fan uint8) string {
+	if fan < uint8(len(comfortProfileFanNames)) {
+		return comfortProfileFanNames[fan]
+	}
+	return "unknown"
+}
+
+func publishComfortProfile(topic string, data []byte) {
+	if len(data) < 5*7 {
+		return
+	}
+	deleteMqttTopic(topic)
+	deleteMqttTopic(topic+"ManualHeatSetPoint")
+	deleteMqttTopic(topic+"ManualCoolSetPoint")
+	deleteMqttTopic(topic+"ManualFanMode")
+	for i := range comfortProfileNames {
+		base := i * 7
+		topicBase := topic + comfortProfileTopicNames[i]
+		fan := comfortProfileFanName(data[base+2])
+		publishAnyTopic(topicBase+"HeatSetPoint", data[base])
+		publishAnyTopic(topicBase+"CoolSetPoint", data[base+1])
+		publishTextTopic(topicBase+"FanMode", fan)
+	}
+}
+
+func scheduleTimeString(tick uint8) string {
+	if tick >= 0x60 {
+		return ""
+	}
+	minutes := int(tick) * 15
+	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60)
+}
+
+func scheduleProfileName(activity uint8) string {
+	if activity < uint8(len(comfortProfileNames)) {
+		return comfortProfileNames[activity]
+	}
+	return "unknown"
+}
+
+func publishSchedule(topic string, data []byte) {
+	if len(data) < len(scheduleDayNames)*10 {
+		return
+	}
+	deleteMqttTopic(topic)
+	deleteMqttTopic(topic+"Raw")
+	for dayIndex, dayName := range scheduleDayNames {
+		dayTopic := topic + dayName
+		dayData := data[dayIndex*10 : dayIndex*10+10]
+		parts := make([]string, 0, 5)
+		for period := 0; period < 5; period++ {
+			timeTick := dayData[period*2]
+			activity := dayData[period*2+1]
+			periodTopic := fmt.Sprintf("%sPeriod%d", dayTopic, period+1)
+			timeValue := scheduleTimeString(timeTick)
+			profileValue := ""
+			if timeValue != "" {
+				profileValue = scheduleProfileName(activity)
+				parts = append(parts, fmt.Sprintf("%s %s", timeValue, profileValue))
+				publishAnyTopic(periodTopic+"Time", timeValue)
+				publishAnyTopic(periodTopic+"ComfortProfile", profileValue)
+			} else {
+				deleteMqttTopic(periodTopic+"Time")
+				deleteMqttTopic(periodTopic+"ComfortProfile")
+			}
+		}
+		publishAnyTopic(dayTopic, strings.Join(parts, "; "))
+	}
+}
+
+func deleteComfortProfileTopics(topic string) {
+	deleteMqttTopic(topic)
+	for _, profile := range append(comfortProfileTopicNames, "Manual") {
+		topicBase := topic + profile
+		deleteMqttTopic(topicBase+"HeatSetPoint")
+		deleteMqttTopic(topicBase+"CoolSetPoint")
+		deleteMqttTopic(topicBase+"FanMode")
+	}
+}
+
+func deleteScheduleTopics(topic string) {
+	deleteMqttTopic(topic)
+	deleteMqttTopic(topic+"Raw")
+	for _, dayName := range scheduleDayNames {
+		dayTopic := topic + dayName
+		deleteMqttTopic(dayTopic)
+		for period := 1; period <= 5; period++ {
+			periodTopic := fmt.Sprintf("%sPeriod%d", dayTopic, period)
+			deleteMqttTopic(periodTopic+"Time")
+			deleteMqttTopic(periodTopic+"ComfortProfile")
+		}
+	}
+}
+
+var deprecatedMqttTopicsDeleted bool
+
+func deleteDeprecatedMqttTopics() {
+	if deprecatedMqttTopicsDeleted || mqttClient == nil || !mqttClient.IsConnected() {
+		return
+	}
+	deprecatedMqttTopicsDeleted = true
+
+	deleteComfortProfileTopics("comfortProfile")
+	deleteScheduleTopics("scheduleProgram")
+	deleteMqttDiscovery("text_sensor", "hvac-text-comfort-profile")
+	deleteMqttDiscovery("text_sensor", "hvac-text-schedule-program")
+
+	for zi := 1; zi <= 8; zi++ {
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfile", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfileManualHeatSetPoint", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfileManualCoolSetPoint", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/comfortProfileManualFanMode", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/scheduleProgram", zi))
+		deleteMqttTopic(fmt.Sprintf("zone/%d/scheduleProgramRaw", zi))
+		deleteMqttDiscovery("text_sensor", fmt.Sprintf("hvac-text-z%d-comfort-profile", zi))
+		deleteMqttDiscovery("text_sensor", fmt.Sprintf("hvac-text-z%d-schedule-program", zi))
+	}
+
+	for i := 1; i <= 6; i++ {
+		deleteMqttTopic(fmt.Sprintf("oduFloat%d", i))
+		deleteMqttDiscovery("sensor", fmt.Sprintf("hvac-sensors-odu-float%d", i))
+	}
+}
+
+func publishThermostatMetadata(index int) {
+	switch index % 3 {
+	case 0:
+		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x46, 0x08}); ok {
+			publishTextTopic("tstatWifiMac", cstrAt(data, 4))
+			publishTextTopic("tstatSSID", cstrAt(data, 24))
+			if exposeWifiPassword {
+				publishTextTopic("tstatWifiPassword", cstrAt(data, 70))
+			}
+			publishTextTopic("tstatHostname", cstrAt(data, 139))
+		}
+	case 1:
+		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x46, 0x09}); ok {
+			publishTextTopic("tstatCloudHost", cstrAt(data, 0))
+			publishTextTopic("tstatProxyServer", cstrAt(data, 67))
+		}
+	case 2:
+		if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x46, 0x0a}); ok {
+			publishTextTopic("tstatDealerName", cstrAt(data, 0))
+			publishTextTopic("tstatDealerBrand", cstrAt(data, 50))
+			publishTextTopic("tstatDealerURL", cstrAt(data, 70))
+		}
+	}
+}
+
+func publishZoneProgram(zi int) {
+	if zi < 0 || zi > 7 {
+		return
+	}
+	topicPrefix := fmt.Sprintf("zone/%d", zi+1)
+	if !isActiveZone(zi) {
+		deleteScheduleTopics(topicPrefix+"/scheduleProgram")
+		deleteComfortProfileTopics(topicPrefix+"/comfortProfile")
+		return
+	}
+	if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x40, byte(0x02+zi)}); ok {
+		publishSchedule(topicPrefix+"/scheduleProgram", data)
+	}
+	if data, ok := readRawTable(devTSTAT, []byte{0x00, 0x40, byte(0x0a+zi)}); ok {
+		publishComfortProfile(topicPrefix+"/comfortProfile", data)
+	}
+}
+
 func getAirHandler() (AirHandler, bool) {
 	b := wsCache.get("blower")
 	tb, ok := b.(*AirHandler)
@@ -517,6 +1029,17 @@ func getDamperPosition() (DamperPosition, bool) {
 		return DamperPosition{}, false
 	}
 	return *th, true
+}
+
+func metadataPoller() {
+	meta_i := 0
+	for {
+		deleteDeprecatedMqttTopics()
+		publishThermostatMetadata(meta_i)
+		publishZoneProgram(meta_i % 8)
+		meta_i++
+		time.Sleep(time.Second * 5)
+	}
 }
 
 func statePoller(monArray []uint16) {
@@ -592,18 +1115,17 @@ func statePoller(monArray []uint16) {
 			mqttCache.update(pf+"/vacation/fanMode", *c2.FanMode)
 		}
 
-
-		// things to poll less-often
-		if c1ok && cyc_i == 0 {
-			c3, c3ok := getTstatTemps()
-			if c3ok {
-				for zi := range c1.Zones {
-					zp := fmt.Sprintf("%s/zone/%d", pf, c1.Zones[zi].ZoneNumber)
-					mqttCache.update(zp+"/temp16", c3.Zones[zi].Temp16)
+			// things to poll less-often
+			if c1ok && cyc_i == 0 {
+				c3, c3ok := getTstatTemps()
+				if c3ok {
+					for zi := range c1.Zones {
+						zp := fmt.Sprintf("%s/zone/%d", pf, c1.Zones[zi].ZoneNumber)
+						mqttCache.update(zp+"/temp16", c3.Zones[zi].Temp16)
+					}
 				}
 			}
-		}
-		cyc_i = (cyc_i + 1) % 10
+			cyc_i = (cyc_i + 1) % 10
 
 		// rotate through the registoer monitor probes, if any
 		if len(monArray) > 0 {
@@ -626,12 +1148,84 @@ func statsPoller() {
 }
 
 func attachSnoops() {
+	// Snoop thermostat broadcasts.  Newer systems publish outdoor temp here
+	// while legacy thermostat status tables remain zero.
+	infinity.snoopResponse(0x2001, 0x2001, func(frame *InfinityFrame) {
+		if frame.op != opWRITE || len(frame.data) < 13 || !bytes.Equal(frame.data[0:3], []byte{0x00, 0x04, 0x20}) {
+			return
+		}
+		data := frame.data[3:]
+		outdoorTemp := uint8((binary.BigEndian.Uint16(data[6:8]) + 8) / 16)
+		updateRuntimeOutdoorTemp(outdoorTemp)
+		log.Debugf("thermostat broadcast outdoor temp=%d raw=%x", outdoorTemp, data)
+	})
+
+	// Snoop 2026 smart sensor responses.  The legacy thermostat zone tables
+	// are zero on this system, but smart sensors publish live zone status.
+	infinity.snoopResponse(0x2200, 0x27ff, func(frame *InfinityFrame) {
+		if frame.op != opRESPONSE || len(frame.data) < 17 || !bytes.Equal(frame.data[0:3], []byte{0x00, 0x04, 0x1e}) {
+			return
+		}
+		zi := int(frame.src >> 8) - 0x21
+		data := frame.data[3:]
+		updateRuntimeZone(zi, data[11], data[12], data[6], data[7])
+		log.Debugf("smart sensor zone %d status: temp=%d humidity=%d heatSP=%d coolSP=%d", zi+1, data[11], data[12], data[6], data[7])
+	})
+
 	// Snoop Heat Pump responses
-	infinity.snoopResponse(0x5000, 0x51ff, func(frame *InfinityFrame) {
+	infinity.snoopResponse(0x5000, 0x5fff, func(frame *InfinityFrame) {
 		data := frame.data[3:]
 		heatPump, ok := getHeatPump()
 		if ok {
-			if bytes.Equal(frame.data[0:3], []byte{0x00, 0x3e, 0x01}) {
+			if bytes.Equal(frame.data[0:3], []byte{0x00, 0x03, 0x02}) && len(data) >= 56 {
+				if temp, ok := oduTempAt(data, 2); ok {
+					heatPump.OutdoorTemp = temp
+				}
+				if temp, ok := oduTempAt(data, 6); ok {
+					heatPump.CoilTemp = temp
+				}
+				if temp, ok := oduTempAt(data, 10); ok {
+					heatPump.SuctionTemp = temp
+				}
+				if temp, ok := oduTempAt(data, 34); ok {
+					heatPump.LiquidTemp = temp
+				}
+				if temp, ok := oduTempAt(data, 50); ok {
+					heatPump.IndoorCoilTemp = temp
+				}
+				if temp, ok := oduTempAt(data, 54); ok {
+					heatPump.DischargeTemp = temp
+				}
+				wsCache.update("heatpump", &heatPump)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduOutdoorTemp", instanceName), heatPump.OutdoorTemp)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduCoilTemp", instanceName), heatPump.CoilTemp)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduSuctionTemp", instanceName), heatPump.SuctionTemp)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduLiquidTemp", instanceName), heatPump.LiquidTemp)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduIndoorCoilTemp", instanceName), heatPump.IndoorCoilTemp)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduDischargeTemp", instanceName), heatPump.DischargeTemp)
+			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x03, 0x04}) && len(data) >= 11 {
+				heatPump.OperatingMode = data[10]
+				wsCache.update("heatpump", &heatPump)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduMode", instanceName), heatPump.OperatingMode)
+			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x06, 0x04}) && len(data) >= 2 {
+				heatPump.CompressorRPM = binary.BigEndian.Uint16(data[0:2])
+				heatPump.CompressorRunning = heatPump.CompressorRPM != 0
+				wsCache.update("heatpump", &heatPump)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/compressorRPM", instanceName), heatPump.CompressorRPM)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/compressorRunning", instanceName), heatPump.CompressorRunning)
+			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x06, 0x08}) && len(data) >= 7 {
+				heatPump.Demand = data[3]
+				heatPump.ODUStage = data[5]
+				heatPump.Modulation = data[6]
+				wsCache.update("heatpump", &heatPump)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduDemand", instanceName), heatPump.Demand)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduStage", instanceName), heatPump.ODUStage)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduModulation", instanceName), heatPump.Modulation)
+			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x06, 0x0b}) && len(data) >= 5 {
+				heatPump.Setpoint = data[4]
+				wsCache.update("heatpump", &heatPump)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/oduSetpoint", instanceName), heatPump.Setpoint)
+			} else if bytes.Equal(frame.data[0:3], []byte{0x00, 0x3e, 0x01}) {
 				heatPump.CoilTemp = float32(binary.BigEndian.Uint16(data[2:4])) / float32(16)
 				heatPump.OutsideTemp = float32(binary.BigEndian.Uint16(data[0:2])) / float32(16)
 				log.Debugf("heat pump coil temp is: %f", heatPump.CoilTemp)
@@ -684,6 +1278,7 @@ func attachSnoops() {
 				mqttCache.update(fmt.Sprintf("mqtt/%s/action", instanceName), airHandler.Action)
 				mqttCache.update(fmt.Sprintf("mqtt/%s/airflowCFM", instanceName), airHandler.AirFlowCFM)
 				mqttCache.update(fmt.Sprintf("mqtt/%s/staticPressure", instanceName), airHandler.StaticPressure)
+				mqttCache.update(fmt.Sprintf("mqtt/%s/electricHeat", instanceName), airHandler.ElecHeat)
 			}
 		}
 	})
@@ -792,6 +1387,8 @@ func main() {
 	doRespLog := flag.Bool("rlog", false, "enable resp log")
 	doDebugLog := flag.Bool("debug", false, "enable debug log level")
 	showDryingOpt := flag.Bool("drying", false, "enable reporting of Drying HVAC action")
+	exposeWifiPasswordOpt := flag.Bool("expose-wifi-password", false, "publish thermostat WiFi password to MQTT")
+	noPoll := flag.Bool("nopoll", false, "disable periodic polling")
 	var busCapturePath busCaptureFlag
 	flag.Var(&busCapturePath, "buscap", "capture decoded bus traffic to a JSONL file")
 	capRotate := flag.Bool("capture-rotate", false, "rotate capture file on open instead of appending")
@@ -810,6 +1407,10 @@ func main() {
 		showDrying = true
 	}
 	log.Infoln("Option showDrying: ", showDrying)
+	if exposeWifiPasswordOpt != nil && *exposeWifiPasswordOpt {
+		exposeWifiPassword = true
+	}
+	log.Infoln("Option exposeWifiPassword: ", exposeWifiPassword)
 
 	if len(*serialPort) == 0 {
 		fmt.Print("must provide serial\n")
@@ -902,7 +1503,6 @@ func main() {
 
 	rawMonTable := []uint16{
 		// 0x3c01, 0x3c03, 0x3c0a, 0x3c0b, 0x3c0c, 0x3c0d, 0x3c0e, 0x3c0f, 0x3c14, 0x3d02, 0x3d03, 
-		0x3b05, 0x3b06, 0x3b0e, 0x3b0f, 0x3d03,
 	}
 
 	attachSnoops()
@@ -915,7 +1515,10 @@ func main() {
 		ConnectMqtt(*mqttBrokerUrl, os.Getenv("MQTTPASS"))
 	}
 
-	go statePoller(rawMonTable)
-	go statsPoller()
+	if noPoll == nil || !*noPoll {
+		go statePoller(rawMonTable)
+		go metadataPoller()
+		go statsPoller()
+	}
 	webserver(*httpPort)
 }
